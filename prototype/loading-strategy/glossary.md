@@ -1,0 +1,54 @@
+# Personal Glossary
+
+Operator meta-language. Inside a repo, its CONTEXT.md wins on conflict.
+
+- **AFK ticket** — a ticket the agent resolves alone, without a human in the loop. *(not: automated task)*
+- **alias** — an accepted alternative name for a term, mapped to the canonical one. *(aka: aka)*
+- **anti-term** — a word deliberately avoided in favor of a canonical term.
+- **capture** — folding what a session learned into a durable artifact before the session ends.
+- **charting** — the first session on an effort: naming the destination and creating the map.
+- **claim** — assigning a ticket to yourself before any work, so concurrent sessions skip it.
+- **compaction** — summarizing older conversation history so a session fits its context window.
+- **context hygiene** — actively curating the context window during a run instead of letting it silt up. *(aka: context pruning)*
+- **context pointer** — a link plus a one-line gist that lets a later session zoom into the detail on demand.
+- **context rot** — the decay of reasoning quality as stale or irrelevant content accumulates in the context window.
+- **curation** — the agent editing the glossary in the open: announcing changes in passing, asking before deletions.
+- **data home** — the directory where a tool's user data lives, separate from its code.
+- **decision ticket** — a ticket resolved by making a decision, not by shipping a deliverable. *(not: task, story)*
+- **degrees of freedom** — how rigidly instructions constrain an agent, from loose heuristics to exact commands. *(aka: instruction freedom)*
+- **destination** — what reaching the end of a map looks like; fixes the scope of an effort.
+- **distillation** — condensing a session into durable claims rather than a transcript.
+- **dual loop** — an outer loop that restarts or steers an inner agentic loop. *(aka: inner–outer loop)*
+- **effort** — a self-contained unit of planned work sized for one map. *(not: epic, initiative, project)*
+- **evaluator–optimizer loop** — one agent produces, a second judges, and the first revises against the judgment.
+- **exit criterion** — the observable condition that ends a loop or session. *(not: done-ish)*
+- **fog** — decisions you can see coming but can't yet phrase sharply enough to ticket. *(aka: fog of war)*
+- **frontier** — the open, unblocked, unclaimed tickets of a map; the edge of the known.
+- **gerund-form naming** — naming skills as activities (diagnosing-bugs), not as nouns.
+- **goal drift** — an agent gradually optimizing for something other than the stated objective.
+- **grilling** — a structured interview that stress-tests a plan or decision. *(aka: interrogation)*
+- **hard iteration cap** — a fixed maximum number of loop iterations, enforced outside the model.
+- **harness** — the agent runtime a tool plugs into: Claude Code first, others later. *(not: IDE, editor)*
+- **HITL ticket** — a ticket that only resolves through live exchange with a human; the agent never stands in for them.
+- **hook** — a script the harness fires deterministically on an event, outside model discretion.
+- **inbox** — the staging area where captured notes wait for human review before merging into the wiki.
+- **lock** — a per-term flag forbidding the agent to reword an entry without consent. *(aka: 🔒)*
+- **map** — the single tracker issue that indexes an effort: destination, decisions so far, fog.
+- **meaning** — the one-line definition of a term; one line is a hard limit. *(not: description)*
+- **no-progress detection** — halting a loop when iterations stop changing observable state.
+- **operator** — the human who owns the glossary and holds veto over the agent's edits. *(not: user)*
+- **quick check** — a cheap automated pre-review pass that filters obvious issues before formal review.
+- **Ralph loop** — an infinite shell loop restarting a fresh-context agent against the same prompt file each iteration. *(aka: Ralph Wiggum technique)*
+- **scratchpad** — a session-local directory for temporary files that never belong in the repo.
+- **seed** — the hand-picked first entries that bootstrap the glossary.
+- **shadowing** — the nearer scope wins on conflict: a repo's CONTEXT.md beats the personal glossary.
+- **term** — the canonical name for a concept; what a meaning attaches to.
+- **ticket** — a child issue of a map, sized to one agent session, resolving one question.
+- **trajectory** — the full recorded sequence of an agent run: prompts, tool calls, outputs.
+- **ubiquitous language** — one shared vocabulary used identically in conversation, docs, and code.
+- **veto** — the operator's standing right to reject or revert any agent edit.
+- **wayfinding** — charting and working a map: finding the way, not charging at the destination.
+- **wiki** — the operator's generated knowledge base (llm-wiki) in their Obsidian vault; may consume the glossary, never the reverse.
+- **worktree** — an isolated git checkout letting a parallel session change the repo without touching yours.
+- **yolo mode** — running an agent with permission prompts disabled. *(not: autonomous mode)*
+- **zoom** — following a context pointer to fetch full detail only when needed. *(aka: progressive disclosure)*
