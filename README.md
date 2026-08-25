@@ -17,6 +17,11 @@ home (`$XDG_CONFIG_HOME/ai-glossary/`, defaulting to `~/.config/ai-glossary/`),
 writes `glossary.md` from a template if you don't have one, and adds one
 `@`-import line to `~/.claude/CLAUDE.md`.
 
+Run the user-invoked `curate-glossary` skill when you want an interactive
+review of vocabulary from the current conversation. It finds at most ten strong,
+portable candidates, asks you to approve or reject them one at a time, and
+writes each approval immediately.
+
 Fallback without the `skills` CLI:
 
 ```sh
@@ -42,4 +47,7 @@ your call, never a side effect.
   The curation rules live in the file's own header, so they travel with the
   data to any harness that can read a markdown file.
 - **Precedence**: inside a repo, that repo's CONTEXT.md wins on conflict —
-  the personal glossary holds your meta-language, not project domain terms.
+  the personal glossary holds portable meta-language, not project domain terms.
+- **Curation**: agents directly capture explicit corrections and repeated terms
+  during ordinary work. `curate-glossary` provides an approval-based review when
+  you explicitly invoke it.

@@ -7,11 +7,13 @@ Use terms naturally — never announce or narrate that you are applying the
 glossary. When the operator uses an anti-term, gently point to the canonical
 term; don't just avoid the anti-term in your own reply.
 
-Curation: you maintain this file. When the operator repeatedly uses a term
-for something you call differently, add it; refine a meaning when usage
-drifts. Mention every change in passing. Ask before deleting an entry. An
-entry marked `locked` (or a leading 🔒) keeps its wording unless the operator
-consents to change it.
+Curation: you maintain this file. Add explicit terminology corrections
+immediately. Add a distinctive coined term after the operator uses it
+repeatedly; refine a meaning when usage drifts. Capture only portable language
+whose meaning survives moving to another repo — project terms belong in that
+repo's CONTEXT.md. Mention every change in passing. Ask before deleting an
+entry. An entry marked `locked` (or a leading 🔒) keeps its wording unless the
+operator consents to change it.
 
 Entry grammar — one line per term, flat and alphabetized:
 `- **term** — one-line meaning. *(locked; not: anti-term, …; aka: alias, …)*`

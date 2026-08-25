@@ -45,9 +45,9 @@ no AI tool owns it; each harness reaches into it.
 _Avoid_: config dir, storage location
 
 **Meta-language**:
-The layer of vocabulary the glossary owns: the operator's process words,
-tool names, and workflow vocabulary — as opposed to any one project's domain
-terms, which belong to that repo's own glossary.
+The layer of vocabulary the glossary owns: portable operator language whose
+meaning survives moving to another repo. Project-specific terms belong to that
+repo's own glossary.
 
 **Shadowing**:
 The precedence rule between glossary layers: inside a repo, its `CONTEXT.md`
@@ -55,10 +55,11 @@ wins on conflict; the personal glossary is the cross-project fallback.
 _Avoid_: override, never-overlap
 
 **Curation**:
-An agent's direct maintenance of the glossary file — adding terms it observes
-the operator using, refining meanings when usage drifts — always announced in
-passing in-session, never silent. Deletion always requires asking first.
-_Avoid_: proposal, approval queue, auto-capture
+Maintenance of the glossary file. During ordinary work, agents directly add
+explicit corrections and repeated coined terms, announcing each change; the
+user-invoked curation skill instead asks the operator to approve or reject every
+candidate. Deletion always requires prior consent.
+_Avoid_: auto-capture
 
 **Lock**:
 A per-term flag (`locked` in the entry's italic group, or a leading 🔒)
@@ -67,10 +68,23 @@ operator's explicit consent.
 _Avoid_: pin, freeze
 
 **Setup skill**:
-The one skill the repo ships — an agent-performed installer and maintenance
-surface. Idempotently bootstraps the data home, glossary file, and `@`-import;
-re-running repairs; uninstall removes the import line but leaves the data home.
+The agent-performed installer and maintenance surface. Idempotently bootstraps
+the data home, glossary file, and `@`-import; re-running repairs; uninstall
+removes the import line but leaves the data home.
 _Avoid_: install script, installer plugin
+
+**Curation skill**:
+The user-invoked interactive review that inspects only the operator's messages
+in the current conversation and ranks up to ten strong, portable candidates:
+explicit corrections, repeated coined terms, aliases, then meaning drifts, with
+frequency breaking ties. Repeated verbose references to one concept qualify for
+a concise inferred term and meaning. The skill collapses overlapping candidates
+toward the more precise term and prefers refining a matching existing term. It
+presents evidence and a proposed line one candidate at a time for approval,
+revision, rejection, or stopping. Each approval is written immediately,
+validated for grammar and alphabetical order, and unlocked unless the operator
+requests a lock; rejection means not during this invocation. Ending produces no
+summary; when nothing qualifies, it reports that no useful candidate was found.
 
 **Harness**:
 An AI tool that consumes the glossary (Claude Code is the first). The
