@@ -26,8 +26,9 @@ instructions outside the managed blocks are preserved.
 
 Run the user-invoked `curate-glossary` skill when you want an interactive
 review of vocabulary from the current conversation. It finds at most ten strong,
-portable candidates, asks you to approve or reject them one at a time, and
-writes each approval immediately.
+portable candidates, asks you to approve or reject them one at a time, writes
+each approval immediately to the canonical file, and synchronizes both managed
+copies after every write.
 
 Fallback without the `skills` CLI:
 
@@ -50,8 +51,9 @@ a side effect.
 
 ## How it works
 
-- **Data home**: `$XDG_CONFIG_HOME/ai-glossary/glossary.md` — a plain
-  directory, harness-neutral; put it under git yourself if you want history.
+- **Data home**: `$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to
+  `~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is unset or empty —
+  harness-neutral; put its directory under git yourself if you want history.
 - **Loading**: setup synchronizes the whole glossary into managed blocks in the
   global Claude Code and Codex AGENTS.md files. Harnesses read ordinary inline
   instructions; no nonstandard `@` expansion is required.
@@ -61,6 +63,7 @@ a side effect.
   data to any harness that can read a markdown file.
 - **Precedence**: inside a repo, that repo's CONTEXT.md wins on conflict —
   the personal glossary holds portable meta-language, not project domain terms.
-- **Curation**: agents directly capture explicit corrections and repeated terms
-  during ordinary work. `curate-glossary` provides an approval-based review when
-  you explicitly invoke it.
+- **Curation**: agents edit only the canonical glossary, then immediately rerun
+  setup to regenerate both managed copies; managed blocks are never edited
+  directly. `curate-glossary` applies this automatically after each approved
+  write.

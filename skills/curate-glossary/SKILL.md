@@ -12,8 +12,15 @@ at a time. This is a review surface: every change requires approval even though
 agents may curate directly during ordinary work.
 
 Resolve the **data home** once from `$XDG_CONFIG_HOME/ai-glossary/`, falling
-back to `~/.config/ai-glossary/`. Read `<data home>/glossary.md`. If it does not
-exist, stop and tell the operator to invoke `ai-glossary-setup`.
+back to `~/.config/ai-glossary/` when `XDG_CONFIG_HOME` is unset or empty. Read
+`<data home>/glossary.md`. If it does not exist, stop and tell the operator to
+invoke `ai-glossary-setup`.
+
+Resolve the synchronization command before starting the interview. Prefer the
+exact command embedded in the current managed block because it preserves any
+path overrides; otherwise use `manage.py` from the installed
+`ai-glossary-setup` skill folder with its defaults. If neither is available,
+stop: an approval must be able to synchronize both generated copies immediately.
 
 ## Build the candidate set
 
@@ -66,5 +73,19 @@ and unrelated terms exactly. Keep every term on one line and the flat term list
 alphabetized. Validate both grammar and ordering after the write. If validation
 fails, report the problem and stop rather than continuing with a malformed file.
 
+After validation, immediately run:
+
+```sh
+python3 <ai-glossary-setup skill folder>/manage.py setup
+```
+
+Run the command resolved before the interview. With defaults, it reads the same
+XDG/default data home and synchronizes the generated blocks in
+`${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md` and
+`${CODEX_HOME:-~/.codex}/AGENTS.md`; the embedded form includes matching
+`--data-home`, `--claude-file`, and `--agents-file` overrides. Report and stop if
+synchronization fails; never edit a managed block directly.
+
 Then ask about the next still-valid candidate. Ending normally or through
-**stop** produces no summary: approved terms are already persisted.
+**stop** produces no summary: approved terms are already persisted and
+synchronized.

@@ -68,10 +68,11 @@ operator's explicit consent.
 _Avoid_: pin, freeze
 
 **Managed glossary block**:
-A marker-delimited copy of the canonical glossary embedded in a harness's
-global instruction file. Setup replaces the whole block during synchronization;
-uninstall removes it without touching unrelated instructions.
-_Avoid_: import, generated glossary
+A marker-delimited generated copy of the canonical glossary embedded in a
+harness's global instruction file. Agents edit only the canonical file and
+immediately run setup to replace both blocks; uninstall removes them without
+touching unrelated instructions.
+_Avoid_: import, editable glossary
 
 **Setup skill**:
 The agent-performed installer and maintenance surface. Idempotently bootstraps
@@ -88,10 +89,12 @@ frequency breaking ties. Repeated verbose references to one concept qualify for
 a concise inferred term and meaning. The skill collapses overlapping candidates
 toward the more precise term and prefers refining a matching existing term. It
 presents evidence and a proposed line one candidate at a time for approval,
-revision, rejection, or stopping. Each approval is written immediately,
-validated for grammar and alphabetical order, and unlocked unless the operator
-requests a lock; rejection means not during this invocation. Ending produces no
-summary; when nothing qualifies, it reports that no useful candidate was found.
+revision, rejection, or stopping. Each approval is written immediately to the
+canonical file, validated for grammar and alphabetical order, and synchronized
+to both managed blocks before continuing; terms remain unlocked unless the
+operator requests a lock. Rejection means not during this invocation. Ending
+produces no summary; when nothing qualifies, it reports that no useful candidate
+was found.
 
 **Harness**:
 An AI tool that consumes the glossary (Claude Code is the first). The

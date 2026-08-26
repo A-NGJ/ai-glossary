@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shlex
 import sys
 import tempfile
 from pathlib import Path
@@ -73,15 +74,46 @@ def unmanaged_text(text: str) -> str:
     return remove_legacy_imports(remove_managed_blocks(text))
 
 
-def managed_block(glossary: str) -> str:
+def synchronization_guidance(
+    data_home: Path, claude_file: Path, agents_file: Path
+) -> str:
+    glossary_file = data_home / "glossary.md"
+    command = shlex.join(
+        (
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "setup",
+            "--data-home",
+            str(data_home),
+            "--claude-file",
+            str(claude_file),
+            "--agents-file",
+            str(agents_file),
+        )
+    )
+    return (
+        "## Canonical glossary workflow\n\n"
+        "The canonical editable file is "
+        "`$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to "
+        "`~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is unset or "
+        "empty. For this installation, "
+        f"edit `{glossary_file}` to curate terms. "
+        f"This managed block in `{claude_file}` and its peer in `{agents_file}` are "
+        "generated copies; never edit either block directly. After every canonical "
+        "edit, immediately synchronize both generated copies by running:\n\n"
+        f"```sh\n{command}\n```\n\n"
+    )
+
+
+def managed_block(glossary: str, guidance: str = "") -> str:
     if START in glossary or END in glossary:
         raise ValueError("glossary contains reserved managed-block markers")
     content = glossary if glossary.endswith("\n") else glossary + "\n"
-    return f"{START}\n{content}{END}\n"
+    return f"{START}\n{guidance}{content}{END}\n"
 
 
-def setup_target(text: str, glossary: str) -> str:
-    return unmanaged_text(text) + managed_block(glossary)
+def setup_target(text: str, glossary: str, guidance: str = "") -> str:
+    return unmanaged_text(text) + managed_block(glossary, guidance)
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -131,7 +163,9 @@ def main() -> int:
     data_home = args.data_home.expanduser().resolve()
     glossary_file = data_home / "glossary.md"
     template = Path(__file__).resolve().parent / "templates" / "glossary.md"
-    targets = (args.claude_file.expanduser(), args.agents_file.expanduser())
+    targets = tuple(
+        path.expanduser().resolve() for path in (args.claude_file, args.agents_file)
+    )
 
     try:
         changes: list[str] = []
@@ -141,8 +175,10 @@ def main() -> int:
                 atomic_write(glossary_file, template.read_text(encoding="utf-8"))
                 changes.append(f"created {glossary_file}")
             glossary = glossary_file.read_text(encoding="utf-8")
+            guidance = synchronization_guidance(data_home, *targets)
             updates = {
-                target: setup_target(read_target(target), glossary) for target in targets
+                target: setup_target(read_target(target), glossary, guidance)
+                for target in targets
             }
             for target, updated in updates.items():
                 if write_if_changed(target, updated):
