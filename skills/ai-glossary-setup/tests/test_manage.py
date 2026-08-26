@@ -102,6 +102,42 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual((self.claude.read_bytes(), self.agents.read_bytes()), first)
         self.assertEqual(result.stdout.strip(), "setup already complete")
 
+    def test_setup_repair_and_uninstall_preserve_mixed_line_endings(self):
+        self.data_home.mkdir(parents=True)
+        glossary_path = self.data_home / "glossary.md"
+        glossary_path.write_text("# First\n", encoding="utf-8")
+        self.claude.parent.mkdir(parents=True)
+        unrelated = b"alpha\r\nbeta\ntail\r\n"
+        self.claude.write_bytes(
+            b"alpha\r\n"
+            b"@C:\\config\\ai-glossary\\glossary.md\r\n"
+            b"beta\n"
+            + manage.managed_block("# Stale\r\n").encode()
+            + b"tail\r\n"
+        )
+
+        setup = self.run_tool("setup")
+
+        self.assertEqual(setup.returncode, 0, setup.stderr)
+        self.assertEqual(
+            self.claude.read_bytes(),
+            unrelated + manage.managed_block("# First\n").encode(),
+        )
+
+        glossary_path.write_text("# Repaired\n", encoding="utf-8")
+        repair = self.run_tool("setup")
+
+        self.assertEqual(repair.returncode, 0, repair.stderr)
+        self.assertEqual(
+            self.claude.read_bytes(),
+            unrelated + manage.managed_block("# Repaired\n").encode(),
+        )
+
+        uninstall = self.run_tool("uninstall")
+
+        self.assertEqual(uninstall.returncode, 0, uninstall.stderr)
+        self.assertEqual(self.claude.read_bytes(), unrelated)
+
     def test_uninstall_removes_only_blocks_and_legacy_lines_and_retains_data(self):
         self.data_home.mkdir(parents=True)
         glossary_path = self.data_home / "glossary.md"
