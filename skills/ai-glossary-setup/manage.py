@@ -104,7 +104,8 @@ def atomic_write(path: Path, content: str) -> None:
 
 def read_target(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8")
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return handle.read()
     except FileNotFoundError:
         return ""
 
