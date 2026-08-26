@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shlex
@@ -78,21 +79,25 @@ def synchronization_guidance(
     data_home: Path, claude_file: Path, agents_file: Path
 ) -> str:
     glossary_file = data_home / "glossary.md"
-    command = shlex.join(
-        (
-            sys.executable,
-            str(Path(__file__).resolve()),
-            "setup",
-            "--data-home",
-            str(data_home),
-            "--claude-file",
-            str(claude_file),
-            "--agents-file",
-            str(agents_file),
-        )
+    command_args = (
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "setup",
+        "--data-home",
+        str(data_home),
+        "--claude-file",
+        str(claude_file),
+        "--agents-file",
+        str(agents_file),
+    )
+    command = shlex.join(command_args)
+    curation = json.dumps(
+        {"canonical_glossary": str(glossary_file), "sync_command": command},
+        separators=(",", ":"),
     )
     return (
         "## Canonical glossary workflow\n\n"
+        f"<!-- ai-glossary:curation {curation} -->\n\n"
         "The canonical editable file is "
         "`$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to "
         "`~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is unset or "

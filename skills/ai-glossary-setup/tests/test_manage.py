@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -235,13 +238,50 @@ class ManageGlossaryTest(unittest.TestCase):
                 manage.default_agents_file(), home / ".codex" / "AGENTS.md"
             )
 
-    def test_curation_skill_requires_sync_after_each_approval(self):
+    def test_explicit_data_home_curation_pair_edits_and_syncs_same_glossary(self):
+        default_glossary = self.root / "xdg" / "ai-glossary" / "glossary.md"
+        default_glossary.parent.mkdir(parents=True)
+        default_glossary.write_text("# Wrong default\n", encoding="utf-8")
+
+        setup = self.run_tool("setup")
+        self.assertEqual(setup.returncode, 0, setup.stderr)
+        block = self.claude.read_text(encoding="utf-8")
+        match = re.search(r"<!-- ai-glossary:curation (\{.*\}) -->", block)
+        self.assertIsNotNone(match)
+        pair = json.loads(match.group(1))
+        canonical = Path(pair["canonical_glossary"])
+        command = shlex.split(pair["sync_command"])
+
+        self.assertEqual(canonical, self.data_home.resolve() / "glossary.md")
+        self.assertEqual(
+            Path(command[command.index("--data-home") + 1]), self.data_home.resolve()
+        )
+        approved = "# Explicit override\n\n- **paired term** — approved meaning.\n"
+        canonical.write_text(approved, encoding="utf-8")
+        sync = subprocess.run(command, check=False, capture_output=True, text=True)
+
+        self.assertEqual(sync.returncode, 0, sync.stderr)
+        self.assertEqual(default_glossary.read_text(encoding="utf-8"), "# Wrong default\n")
+        for target in (self.claude, self.agents):
+            generated = target.read_text(encoding="utf-8")
+            self.assertIn(approved, generated)
+            self.assertNotIn("# Wrong default", generated)
+
+    def test_curation_skill_resolves_managed_pair_before_environment_fallback(self):
         skill = SKILL_DIR.parent.joinpath("curate-glossary/SKILL.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("After validation, immediately run:", skill)
-        self.assertIn("manage.py setup", skill)
-        self.assertIn("Prefer the\nexact command embedded in the current managed block", skill)
+        managed = skill.index("Before reading a glossary, inspect the current global")
+        fallback = skill.index("When no current managed block supplies the pair")
+        read = skill.index("Read only the canonical glossary from the resolved pair")
+        apply = skill.index("Run the synchronization command from the same resolved pair")
+
+        self.assertLess(managed, fallback)
+        self.assertLess(fallback, read)
+        self.assertLess(read, apply)
+        self.assertIn("require the pairs to match", skill)
+        self.assertIn("For an older block without that\ncomment", skill)
+        self.assertIn("Never\ncombine a canonical path from one source", skill)
         self.assertIn("Report and stop if\nsynchronization fails", skill)
         self.assertIn("never edit a managed block directly", skill)
 
