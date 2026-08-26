@@ -13,6 +13,9 @@ entries.
 npx skills add A-NGJ/ai-glossary
 ```
 
+To reinstall both skills into OpenCode directly from this checkout while
+developing, run `make install-local`. This includes uncommitted local changes.
+
 Then ask your agent to run the `ai-glossary-setup` skill. It creates the data
 home (`$XDG_CONFIG_HOME/ai-glossary/`, defaulting to `~/.config/ai-glossary/`),
 writes `glossary.md` from a template if you don't have one, and embeds its

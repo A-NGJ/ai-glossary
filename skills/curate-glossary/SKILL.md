@@ -30,7 +30,9 @@ setup script does not exist, stop and tell the operator to invoke
 `ai-glossary-setup`.
 
 Read only the canonical glossary from the resolved pair. Keep that exact pair
-unchanged for the whole interview.
+unchanged for the whole interview. Validate the existing term grammar and
+alphabetical order before building candidates. If validation fails, report the
+problem and stop before asking for approvals or changing any file.
 
 ## Build the candidate set
 
@@ -78,12 +80,12 @@ locked, state that approval grants consent only for the exact proposed edit.
 
 ## Apply each approval immediately
 
-After approval, edit the installed glossary immediately, preserving its header
-and unrelated terms exactly. Keep every term on one line and the flat term list
-alphabetized. Validate both grammar and ordering after the write. If validation
-fails, report the problem and stop rather than continuing with a malformed file.
-
-After validation, immediately run:
+After approval, construct the complete updated glossary in memory, preserving
+its header and unrelated terms exactly. Keep every term on one line and the flat
+term list alphabetized. Validate the complete proposed content for grammar and
+ordering before writing it. If validation fails, report the problem and leave
+the canonical file unchanged. Once valid, write the canonical file and
+immediately run:
 
 ```sh
 python3 <ai-glossary-setup skill folder>/manage.py setup
