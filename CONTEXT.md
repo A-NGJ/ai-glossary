@@ -67,10 +67,17 @@ forbidding an agent from rewording or removing that term without the
 operator's explicit consent.
 _Avoid_: pin, freeze
 
+**Managed glossary block**:
+A marker-delimited copy of the canonical glossary embedded in a harness's
+global instruction file. Setup replaces the whole block during synchronization;
+uninstall removes it without touching unrelated instructions.
+_Avoid_: import, generated glossary
+
 **Setup skill**:
 The agent-performed installer and maintenance surface. Idempotently bootstraps
-the data home, glossary file, and `@`-import; re-running repairs; uninstall
-removes the import line but leaves the data home.
+the data home and glossary file, then synchronizes managed glossary blocks into
+global Claude Code and AGENTS.md instructions; uninstall removes those blocks
+and legacy import lines but leaves the data home.
 _Avoid_: install script, installer plugin
 
 **Curation skill**:
