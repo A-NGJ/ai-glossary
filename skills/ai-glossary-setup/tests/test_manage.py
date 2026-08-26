@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = SKILL_DIR / "manage.py"
@@ -44,11 +46,18 @@ class ManageGlossaryTest(unittest.TestCase):
             text=True,
         )
 
+    def expected_guidance(self) -> str:
+        return manage.synchronization_guidance(
+            self.data_home.resolve(), self.claude.resolve(), self.agents.resolve()
+        )
+
     def assert_one_complete_block(self, path: Path, glossary: str) -> None:
         text = path.read_text(encoding="utf-8")
         self.assertEqual(text.count(manage.START), 1)
         self.assertEqual(text.count(manage.END), 1)
-        self.assertIn(manage.managed_block(glossary), text)
+        self.assertIn(
+            manage.managed_block(glossary, self.expected_guidance()), text
+        )
 
     def test_fresh_setup_creates_data_and_both_global_files(self):
         result = self.run_tool("setup")
@@ -57,6 +66,18 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(glossary, SKILL_DIR.joinpath("templates/glossary.md").read_text(encoding="utf-8"))
         self.assert_one_complete_block(self.claude, glossary)
         self.assert_one_complete_block(self.agents, glossary)
+        for target in (self.claude, self.agents):
+            block = target.read_text(encoding="utf-8")
+            self.assertIn(
+                "`$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to "
+                "`~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is unset or empty",
+                block,
+            )
+            self.assertIn("generated copies; never edit either block directly", block)
+            self.assertIn("After every canonical edit, immediately synchronize", block)
+            self.assertIn(f"--data-home {self.data_home.resolve()}", block)
+            self.assertIn(f"--claude-file {self.claude.resolve()}", block)
+            self.assertIn(f"--agents-file {self.agents.resolve()}", block)
 
     def test_setup_migrates_legacy_import_and_preserves_unrelated_content(self):
         self.data_home.mkdir(parents=True)
@@ -121,7 +142,8 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(setup.returncode, 0, setup.stderr)
         self.assertEqual(
             self.claude.read_bytes(),
-            unrelated + manage.managed_block("# First\n").encode(),
+            unrelated
+            + manage.managed_block("# First\n", self.expected_guidance()).encode(),
         )
 
         glossary_path.write_text("# Repaired\n", encoding="utf-8")
@@ -130,7 +152,8 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(repair.returncode, 0, repair.stderr)
         self.assertEqual(
             self.claude.read_bytes(),
-            unrelated + manage.managed_block("# Repaired\n").encode(),
+            unrelated
+            + manage.managed_block("# Repaired\n", self.expected_guidance()).encode(),
         )
 
         uninstall = self.run_tool("uninstall")
@@ -168,6 +191,59 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertFalse(self.claude.exists())
         self.assertFalse(self.agents.exists())
         self.assertFalse(self.data_home.exists())
+
+    def test_default_paths_honor_xdg_and_harness_environment(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "HOME": str(self.root / "home"),
+                "XDG_CONFIG_HOME": str(self.root / "xdg"),
+                "CLAUDE_CONFIG_DIR": str(self.root / "custom-claude"),
+                "CODEX_HOME": str(self.root / "custom-codex"),
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                manage.default_data_home(), self.root / "xdg" / "ai-glossary"
+            )
+            self.assertEqual(
+                manage.default_claude_file(), self.root / "custom-claude" / "CLAUDE.md"
+            )
+            self.assertEqual(
+                manage.default_agents_file(), self.root / "custom-codex" / "AGENTS.md"
+            )
+
+    def test_empty_xdg_and_harness_environment_use_home_fallbacks(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "HOME": str(self.root / "home"),
+                "XDG_CONFIG_HOME": "",
+                "CLAUDE_CONFIG_DIR": "",
+                "CODEX_HOME": "",
+            },
+            clear=True,
+        ):
+            home = self.root / "home"
+            self.assertEqual(
+                manage.default_data_home(), home / ".config" / "ai-glossary"
+            )
+            self.assertEqual(
+                manage.default_claude_file(), home / ".claude" / "CLAUDE.md"
+            )
+            self.assertEqual(
+                manage.default_agents_file(), home / ".codex" / "AGENTS.md"
+            )
+
+    def test_curation_skill_requires_sync_after_each_approval(self):
+        skill = SKILL_DIR.parent.joinpath("curate-glossary/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("After validation, immediately run:", skill)
+        self.assertIn("manage.py setup", skill)
+        self.assertIn("Prefer the\nexact command embedded in the current managed block", skill)
+        self.assertIn("Report and stop if\nsynchronization fails", skill)
+        self.assertIn("never edit a managed block directly", skill)
 
     def test_partial_managed_block_fails_without_rewriting_target(self):
         self.data_home.mkdir(parents=True)

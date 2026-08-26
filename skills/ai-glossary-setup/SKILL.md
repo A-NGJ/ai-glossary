@@ -14,7 +14,8 @@ between managed markers in both global instruction files:
 - AGENTS.md-based Codex harnesses: `${CODEX_HOME:-~/.codex}/AGENTS.md`
 
 The **data home** is `$XDG_CONFIG_HOME/ai-glossary/`, falling back to
-`~/.config/ai-glossary/`. The script expands these defaults itself. Use its
+`~/.config/ai-glossary/` when `XDG_CONFIG_HOME` is unset or empty. The script
+expands these defaults itself. Use its
 path from this skill's folder, regardless of the current working directory.
 
 ## Setup and repair
@@ -37,9 +38,11 @@ other content, then writes exactly one current block delimited by:
 <!-- ai-glossary:managed:end -->
 ```
 
-A rerun therefore synchronizes edits made to the canonical glossary and does
-not duplicate blocks. Report each path printed by the command; `setup already
-complete` means no bytes needed changing.
+Each generated block also identifies the canonical file, forbids direct block
+edits, and embeds the exact command and resolved canonical/target paths needed
+to synchronize that installation. A rerun therefore synchronizes canonical
+edits and does not duplicate blocks. Report each path printed by the command;
+`setup already complete` means no bytes needed changing.
 
 Done when the command exits zero, the canonical glossary exists, and both
 global files contain exactly one managed block with its complete content.
