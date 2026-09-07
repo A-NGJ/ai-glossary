@@ -43,3 +43,65 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+## Agile Agentic Flow (AAF) Mechanics
+
+This repository uses the `github-issues` AAF tracker adapter targeting `A-NGJ/ai-glossary` via `gh`.
+
+### Roles and Authority
+
+- Exactly one issue tracker (`github-issues` on GitHub) is authoritative.
+- Only the orchestrator creates and updates tracker records or changes workflow state. Specialists receive read-only tracker records.
+- GitHub assigns issue numbers; no local issue directory or locally allocated IDs exist.
+
+### Workflow State Mapping
+
+Workflow state is tracked via dedicated labels (open/closed status alone is not the workflow phase):
+
+| Phase | GitHub Label | Meaning |
+| ----- | ------------ | ------- |
+| `todo` | `aaf:todo` | Authorized and eligible to run |
+| `in-progress` | `aaf:in-progress` | Active under assignment |
+| `done` | `aaf:done` | Merged and completed |
+| `backlog` | `aaf:backlog` | Optional: awaiting operator approval |
+| `blocked` | `aaf:blocked` | Optional: waiting on dependency or decision |
+| `cancelled` | `aaf:cancelled` | Optional: abandoned with history preserved |
+
+### Issue Record Structure
+
+Every AAF issue body contains structured metadata, outcome/constraints, completion boundary, and evidence sections:
+
+```markdown
+<!-- aaf-metadata
+type: feature | bugfix | docs | hotfix | refactor | chore
+priority: 0
+parent: null | <issue-number>
+depends_on: []
+active_specialist: null
+input_revisions: []
+required_checks: ["observable-inspection"]
+created_at: YYYY-MM-DDTHH:MM:SSZ
+updated_at: YYYY-MM-DDTHH:MM:SSZ
+-->
+
+## Outcome
+Why this issue exists and observable result.
+
+## Constraints and Uncertainty
+Known limitations, non-goals, and identified uncertainties.
+
+## Completion Boundary and Exit Criterion
+Explicit exit criterion and required checks/evidence.
+
+## Evidence and Verification
+Revision-linked verification commands, results, and independent review verdicts.
+```
+
+### Activity Comments
+
+Issue comments record append-only activity:
+- Actor, event, prior/current claim, evidence, authority, and next action.
+- Revision-linked check executions and reviewer verdicts (`Accepted`, `Changes Required`, `Evidence Required`).
+- Operator approvals, failure reports, and state transitions.
+- Pre-implementation research reports.
+
