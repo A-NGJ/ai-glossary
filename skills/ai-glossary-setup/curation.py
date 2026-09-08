@@ -33,6 +33,13 @@ ENTRY_RE = re.compile(
 )
 SEPARATOR_LINE = "---"
 
+# Per the template header, a lock may be rendered either as the `locked` flag
+# in the italic group, or as this glyph leading the term itself
+# (`- **🔒 anchor** — ...`). Both are lock metadata, never term text: the
+# canonical term is always the text with any leading glyph stripped.
+LOCK_GLYPH = "🔒"
+_LEADING_LOCK_RE = re.compile(rf"^{LOCK_GLYPH}\s*")
+
 
 @dataclass
 class GlossaryEntry:
@@ -41,17 +48,23 @@ class GlossaryEntry:
     locked: bool = False
     not_terms: tuple[str, ...] = ()
     aka_terms: tuple[str, ...] = ()
+    # True when this entry's lock is rendered as a leading 🔒 before the term
+    # rather than the `locked` flag in the italic group. Tracked separately
+    # from `locked` so re-rendering an untouched entry reproduces the exact
+    # original lock syntax byte-for-byte.
+    locked_prefix: bool = False
 
     def render(self) -> str:
+        term_text = f"{LOCK_GLYPH} {self.term}" if self.locked_prefix else self.term
         flags = []
-        if self.locked:
+        if self.locked and not self.locked_prefix:
             flags.append("locked")
         if self.not_terms:
             flags.append("not: " + ", ".join(self.not_terms))
         if self.aka_terms:
             flags.append("aka: " + ", ".join(self.aka_terms))
         suffix = f" *({'; '.join(flags)})*" if flags else ""
-        return f"- **{self.term}** — {self.meaning}{suffix}"
+        return f"- **{term_text}** — {self.meaning}{suffix}"
 
 
 def _parse_flags(flags: Optional[str]) -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
@@ -78,12 +91,16 @@ def parse_entry_line(line: str) -> Optional[GlossaryEntry]:
     if not match:
         return None
     locked, not_terms, aka_terms = _parse_flags(match.group("flags"))
+    raw_term = match.group("term")
+    locked_prefix = bool(_LEADING_LOCK_RE.match(raw_term))
+    term = _LEADING_LOCK_RE.sub("", raw_term) if locked_prefix else raw_term
     return GlossaryEntry(
-        term=match.group("term"),
+        term=term,
         meaning=match.group("meaning"),
-        locked=locked,
+        locked=locked or locked_prefix,
         not_terms=not_terms,
         aka_terms=aka_terms,
+        locked_prefix=locked_prefix,
     )
 
 
@@ -325,6 +342,27 @@ DEFAULT_MIN_REPETITIONS = 3
 
 _TERM = r"[a-zA-Z][a-zA-Z0-9 _-]{1,40}?"
 
+# Portability gate: deterministically reject candidates whose term or meaning
+# names them as scoped to one specific codebase, rather than portable
+# operator meta-language whose meaning survives moving to another repo (the
+# issue's explicit non-goal — project-specific vocabulary belongs in that
+# repo's own CONTEXT.md, not the personal glossary). This is a fixed phrase
+# check, not an LLM judgment call: any explicit self-scoping reference such
+# as "this repo(sitory)", "this codebase", "this project", or the "our"
+# equivalent, anywhere in the term or meaning, disqualifies the candidate
+# even when every other extraction rule (correction, alias, definition,
+# repetition) would otherwise accept it.
+_PROJECT_SCOPE_RE = re.compile(
+    r"\b(?:this|our|the current)\s+"
+    r"(?:repo|repository|codebase|monorepo|project|application|app|service)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_portable(term: str, meaning: str) -> bool:
+    return not (_PROJECT_SCOPE_RE.search(term) or _PROJECT_SCOPE_RE.search(meaning))
+
+
 _CORRECTION_PATTERNS = [
     re.compile(
         rf"\b(?:i say|i use|call it|we call it|the term is)\s+"
@@ -442,8 +480,61 @@ def _clean_meaning(meaning: str) -> str:
     return meaning
 
 
+# When one term collects evidence of more than one explicit kind (a
+# correction, an alias, and a definition all naming the same term), the
+# merged candidate keeps the strongest available explicit meaning. A real
+# operator-authored definition is always more informative than a meaning
+# synthesized from a correction's anti-term or an alias's alternate name.
+_EXPLICIT_KIND_PRIORITY = {"definition": 3, "correction": 2, "alias": 1}
+
+
+def _dedupe_preserve_order(items: Iterable[str]) -> tuple[str, ...]:
+    """Deduplicate case-insensitively while keeping first-seen order and
+    casing, for deterministic accumulated not-term/alias lists."""
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return tuple(result)
+
+
+@dataclass
+class _ExplicitMatch:
+    term: str
+    kind: str
+    meaning: str
+    evidence: str
+    not_terms: tuple[str, ...] = ()
+    aka_terms: tuple[str, ...] = ()
+
+
 def _extract_explicit_candidates(messages: Iterable[str]) -> list[Candidate]:
-    candidates: dict[str, Candidate] = {}
+    """Extract one merged candidate per distinct term named by an explicit
+    correction, alias, and/or definition statement.
+
+    A term can accumulate more than one kind of explicit evidence across the
+    operator's messages (for example a correction, then later an alias, then
+    later a definition, all naming the same canonical term). Every match is
+    kept: unique anti-terms and aliases accumulate in first-seen order and
+    are deduplicated case-insensitively, and the merged candidate's meaning
+    and ``kind`` come from the single strongest explicit statement
+    (definition, then correction, then alias) rather than only the first
+    pattern that happened to match.
+    """
+
+    matches: dict[str, list[_ExplicitMatch]] = {}
+
+    def _record(term: str, kind: str, meaning: str, evidence: str, **extra) -> None:
+        key = term.lower()
+        matches.setdefault(key, []).append(
+            _ExplicitMatch(term=term, kind=kind, meaning=meaning, evidence=evidence, **extra)
+        )
+
     for message in messages:
         for sentence in _split_sentences(message):
             for pattern in _CORRECTION_PATTERNS:
@@ -452,45 +543,56 @@ def _extract_explicit_candidates(messages: Iterable[str]) -> list[Candidate]:
                     continue
                 term = _normalize_term(match.group("term"))
                 anti = _normalize_term(match.group("anti"))
-                key = term.lower()
-                if key not in candidates:
-                    candidates[key] = Candidate(
-                        term=term,
-                        meaning=f"the operator's canonical term for {anti.lower()}.",
-                        kind="correction",
-                        evidence=sentence,
-                        not_terms=(anti,),
-                    )
+                _record(
+                    term,
+                    "correction",
+                    f"the operator's canonical term for {anti.lower()}.",
+                    sentence,
+                    not_terms=(anti,),
+                )
             for pattern in _ALIAS_PATTERNS:
                 match = pattern.search(sentence)
                 if not match:
                     continue
                 term = _normalize_term(match.group("term"))
                 alias = _normalize_term(match.group("alias"))
-                key = term.lower()
-                if key not in candidates:
-                    candidates[key] = Candidate(
-                        term=term,
-                        meaning=f"also called {alias.lower()} by the operator.",
-                        kind="alias",
-                        evidence=sentence,
-                        aka_terms=(alias,),
-                    )
+                _record(
+                    term,
+                    "alias",
+                    f"also called {alias.lower()} by the operator.",
+                    sentence,
+                    aka_terms=(alias,),
+                )
             for pattern in _DEFINITION_PATTERNS:
                 match = pattern.search(sentence)
                 if not match:
                     continue
                 term = _normalize_term(match.group("term"))
                 meaning = _clean_meaning(match.group("meaning"))
-                key = term.lower()
-                if key not in candidates:
-                    candidates[key] = Candidate(
-                        term=term,
-                        meaning=meaning,
-                        kind="definition",
-                        evidence=sentence,
-                    )
-    return list(candidates.values())
+                _record(term, "definition", meaning, sentence)
+
+    candidates: list[Candidate] = []
+    for entries in matches.values():
+        # First-seen casing of the term is the canonical rendering.
+        term = entries[0].term
+        best = max(entries, key=lambda entry: _EXPLICIT_KIND_PRIORITY[entry.kind])
+        not_terms = _dedupe_preserve_order(
+            anti for entry in entries for anti in entry.not_terms
+        )
+        aka_terms = _dedupe_preserve_order(
+            alias for entry in entries for alias in entry.aka_terms
+        )
+        candidates.append(
+            Candidate(
+                term=term,
+                meaning=best.meaning,
+                kind=best.kind,
+                evidence=best.evidence,
+                not_terms=not_terms,
+                aka_terms=aka_terms,
+            )
+        )
+    return candidates
 
 
 _DEFINITION_CONNECTOR_RE = re.compile(r"\b(is|are|means|refers to|when)\b", re.IGNORECASE)
@@ -631,6 +733,13 @@ def find_candidates(
     ``min_repetitions`` distinct operator messages, after stopword and
     common-programming-keyword filtering, and only when a supporting
     operator sentence yields a meaningful one-line inferred meaning.
+
+    Every candidate — explicit or repeated — then passes a portability gate:
+    a term or meaning that explicitly scopes itself to one codebase (for
+    example "unique to this repository") is rejected outright, even when it
+    was stated as an explicit correction/alias/definition. Project-specific
+    vocabulary belongs in that repo's own CONTEXT.md, never the personal
+    glossary.
     """
 
     explicit = _extract_explicit_candidates(messages)
@@ -642,7 +751,11 @@ def find_candidates(
         if candidate.term.lower() not in explicit_terms
     ]
 
-    return explicit + repeated
+    return [
+        candidate
+        for candidate in explicit + repeated
+        if _is_portable(candidate.term, candidate.meaning)
+    ]
 
 
 # ---------------------------------------------------------------------------

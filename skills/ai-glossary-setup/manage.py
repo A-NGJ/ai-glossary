@@ -422,6 +422,25 @@ def _default_opencode_plugin_dir() -> Path:
 
 
 def _opencode_plugin_source(data_home: Path, claude_file: Path, agents_file: Path) -> str:
+    """Generate the Opencode plugin source. The plugin invokes the shared
+    ``curate`` command as a subprocess and must therefore explicitly:
+
+    - collect the child's stdout/stderr instead of leaving them unconsumed,
+    - surface the command's own report (each added term, "no qualifying...",
+      or the failure message) to the operator through the TUI toast API —
+      the supported Opencode-visible mechanism for a plugin to report
+      something to the operator outside the chat transcript — and
+    - treat a nonzero exit code as a failure toast, not silent success.
+
+    A dynamic ``import("node:child_process")`` is used, rather than
+    ``require``, because Opencode loads this file as an ES module (top-level
+    ``await`` next to ``require`` is a syntax error in that mode); the
+    ``event`` hook itself already runs inside an async function regardless.
+    Toast delivery is best-effort and errors are swallowed there specifically
+    so a broken toast call can never block the (non-blocking) session-idle
+    lifecycle event or crash the host.
+    """
+
     manage_path = Path(__file__).resolve()
     return (
         f"// {OPENCODE_PLUGIN_MARKER}\n"
@@ -435,8 +454,8 @@ def _opencode_plugin_source(data_home: Path, claude_file: Path, agents_file: Pat
         "      const sessionID = event.properties.sessionID;\n"
         "      const response = await client.session.messages({ path: { id: sessionID } });\n"
         "      const payload = JSON.stringify({ messages: response.data ?? response });\n"
-        "      await new Promise((resolve, reject) => {\n"
-        "        const { spawn } = require(\"node:child_process\");\n"
+        "      const { spawn } = await import(\"node:child_process\");\n"
+        "      const { code, stdout, stderr } = await new Promise((resolve, reject) => {\n"
         f"        const child = spawn({json.dumps(sys.executable)}, [\n"
         f"          {json.dumps(str(manage_path))},\n"
         "          \"curate\",\n"
@@ -445,11 +464,30 @@ def _opencode_plugin_source(data_home: Path, claude_file: Path, agents_file: Pat
         f"          \"--agents-file\", {json.dumps(str(agents_file))},\n"
         "          \"--source\", \"opencode\",\n"
         "        ]);\n"
+        "        let stdout = \"\";\n"
+        "        let stderr = \"\";\n"
+        "        child.stdout.on(\"data\", (chunk) => { stdout += chunk.toString(); });\n"
+        "        child.stderr.on(\"data\", (chunk) => { stderr += chunk.toString(); });\n"
         "        child.stdin.write(payload);\n"
         "        child.stdin.end();\n"
         "        child.on(\"error\", reject);\n"
-        "        child.on(\"exit\", () => resolve());\n"
+        "        child.on(\"exit\", (code) => resolve({ code, stdout, stderr }));\n"
         "      });\n"
+        "      const ok = code === 0;\n"
+        "      const message = (ok ? stdout : stderr || stdout).trim() ||\n"
+        "        (ok ? \"automatic curation finished\" : `automatic curation failed (exit ${code})`);\n"
+        "      try {\n"
+        "        await client.tui.showToast({\n"
+        "          body: {\n"
+        "            title: \"ai-glossary\",\n"
+        "            message,\n"
+        "            variant: ok ? \"info\" : \"error\",\n"
+        "          },\n"
+        "        });\n"
+        "      } catch {\n"
+        "        // Toast delivery is best-effort: never let a reporting\n"
+        "        // failure block the non-blocking session-idle event.\n"
+        "      }\n"
         "    },\n"
         "  };\n"
         "};\n"

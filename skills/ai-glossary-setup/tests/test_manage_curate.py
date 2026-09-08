@@ -6,6 +6,7 @@ install/removal of the Claude Code SessionEnd hook and the Opencode plugin.
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,9 @@ SPEC = importlib.util.spec_from_file_location("ai_glossary_manage_curate", SCRIP
 manage = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(manage)
+
+NODE = shutil.which("node")
+PLUGIN_RUNNER = Path(__file__).resolve().parent / "fixtures" / "run_opencode_plugin.mjs"
 
 
 def claude_transcript(*messages: str) -> str:
@@ -364,6 +368,103 @@ class OpencodePluginLifecycleTest(ManageCuratePaths):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(plugin_file.read_text(encoding="utf-8"), "// not ours\n")
+
+
+@unittest.skipUnless(NODE, "node is required to exercise the generated Opencode plugin")
+class OpencodePluginAdapterReportingTest(ManageCuratePaths):
+    """Adapter-level tests for the generated Opencode plugin file itself,
+    per the issue's testing decision that harness adapters are tested for
+    correct command invocation and lifecycle behavior. These load the real
+    generated plugin as an ES module and drive its ``session.idle`` handler
+    against a mocked ``client`` — but the handler's own subprocess spawn
+    still runs the real ``curate`` command unmodified, so stdout/stderr
+    capture and exit-code handling are exercised end to end rather than
+    mocked away.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.opencode_plugin_dir.mkdir(parents=True)
+        source = manage._opencode_plugin_source(
+            self.data_home, self.claude, self.agents
+        )
+        self.plugin_file = self.opencode_plugin_dir / manage.OPENCODE_PLUGIN_NAME
+        self.plugin_file.write_text(source, encoding="utf-8")
+
+    def run_plugin(self, messages: list[dict]) -> dict:
+        result = subprocess.run(
+            [NODE, str(PLUGIN_RUNNER), str(self.plugin_file), json.dumps(messages)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    @staticmethod
+    def _user_message(text: str) -> dict:
+        return {"info": {"role": "user"}, "parts": [{"type": "text", "text": text}]}
+
+    def test_generated_plugin_has_valid_syntax(self):
+        result = subprocess.run(
+            [NODE, "--check", str(self.plugin_file)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_applied_change_is_reported_through_a_toast(self):
+        outcome = self.run_plugin(
+            [self._user_message("I say fog of war, not blocked scope.")]
+        )
+        self.assertIsNone(outcome["error"])
+        self.assertEqual(len(outcome["toastCalls"]), 1)
+        toast = outcome["toastCalls"][0]["body"]
+        self.assertEqual(toast["variant"], "info")
+        self.assertIn("fog of war", toast["message"])
+        glossary = (self.data_home / "glossary.md").read_text(encoding="utf-8")
+        self.assertIn("fog of war", glossary)
+
+    def test_no_qualifying_candidates_still_reports_a_toast(self):
+        outcome = self.run_plugin(
+            [self._user_message("Just a normal unremarkable message.")]
+        )
+        self.assertIsNone(outcome["error"])
+        self.assertEqual(len(outcome["toastCalls"]), 1)
+        toast = outcome["toastCalls"][0]["body"]
+        self.assertEqual(toast["variant"], "info")
+        self.assertIn("no qualifying", toast["message"])
+
+    def test_curate_command_failure_is_surfaced_as_an_error_toast(self):
+        # Force the shared curate command to exit nonzero: replace the
+        # claude-file target (a file the command must write through) with a
+        # directory, so the write fails during synchronization.
+        self.claude.parent.mkdir(parents=True, exist_ok=True)
+        self.claude.mkdir()
+
+        outcome = self.run_plugin(
+            [self._user_message("I say fog of war, not blocked scope.")]
+        )
+
+        self.assertIsNone(outcome["error"])
+        self.assertEqual(len(outcome["toastCalls"]), 1)
+        toast = outcome["toastCalls"][0]["body"]
+        self.assertEqual(toast["variant"], "error")
+        self.assertTrue(toast["message"])
+
+    def test_failure_toast_never_reports_success_language(self):
+        self.claude.parent.mkdir(parents=True, exist_ok=True)
+        self.claude.mkdir()
+
+        outcome = self.run_plugin(
+            [self._user_message("I say fog of war, not blocked scope.")]
+        )
+
+        toast = outcome["toastCalls"][0]["body"]
+        self.assertNotIn("added", toast["message"])
+        self.assertNotIn("no qualifying", toast["message"])
 
 
 if __name__ == "__main__":

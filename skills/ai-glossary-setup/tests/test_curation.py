@@ -92,6 +92,59 @@ class GlossaryGrammarTest(unittest.TestCase):
             curation.validate_glossary("---\n\n- **b** — x.\n- **a** — y.\n")
 
 
+class LeadingLockSyntaxTest(unittest.TestCase):
+    """Per the template header, a lock may be rendered either as the
+    `locked` flag or as a leading 🔒 before the term
+    (`- **🔒 anchor** — ...`). Both must be recognized as lock metadata, not
+    term text, so the canonicalized term matches a plain-text candidate and
+    stays protected from autonomous duplication/revision."""
+
+    def test_leading_lock_glyph_is_recognized_as_locked_not_term_text(self):
+        entry = curation.parse_entry_line("- **🔒 anchor** — original wording.")
+        self.assertEqual(entry.term, "anchor")
+        self.assertTrue(entry.locked)
+
+    def test_leading_lock_glyph_round_trips_byte_for_byte(self):
+        line = "- **🔒 anchor** — original wording."
+        entry = curation.parse_entry_line(line)
+        self.assertEqual(entry.render(), line)
+
+    def test_leading_lock_glyph_glossary_round_trips_byte_for_byte(self):
+        text = "---\n\n- **🔒 anchor** — original wording.\n"
+        parsed = curation.parse_glossary(text)
+        self.assertEqual(parsed.render(), text)
+
+    def test_leading_lock_glyph_prevents_duplicate_unlocked_candidate(self):
+        glossary = "---\n\n- **🔒 anchor** — original wording.\n"
+        candidates = [
+            curation.Candidate(
+                term="anchor", meaning="a hostile rewrite.", kind="repeated", evidence=""
+            )
+        ]
+        updated, applied = curation.apply_candidates(glossary, candidates)
+        self.assertEqual(applied, [])
+        self.assertEqual(updated, glossary)
+
+    def test_leading_lock_glyph_matches_case_insensitively(self):
+        glossary = "---\n\n- **🔒 Anchor** — original wording.\n"
+        candidates = [
+            curation.Candidate(
+                term="ANCHOR", meaning="a hostile rewrite.", kind="repeated", evidence=""
+            )
+        ]
+        updated, applied = curation.apply_candidates(glossary, candidates)
+        self.assertEqual(applied, [])
+        self.assertEqual(updated, glossary)
+
+    def test_locked_flag_and_leading_glyph_both_report_locked(self):
+        flag_locked = curation.parse_entry_line("- **term** — meaning. *(locked)*")
+        glyph_locked = curation.parse_entry_line("- **🔒 term** — meaning.")
+        self.assertTrue(flag_locked.locked)
+        self.assertTrue(glyph_locked.locked)
+        self.assertFalse(flag_locked.locked_prefix)
+        self.assertTrue(glyph_locked.locked_prefix)
+
+
 class ClaudeTranscriptExtractionTest(unittest.TestCase):
     @staticmethod
     def _line(**fields):
@@ -330,6 +383,101 @@ class ExplicitCandidateRuleTest(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
 
 
+class CombinedExplicitEvidenceTest(unittest.TestCase):
+    """Multiple operator statements naming the same canonical term — a
+    correction, an alias, and a definition — must merge into one candidate
+    that keeps the strongest explicit meaning plus every accumulated unique
+    anti-term and alias, rather than collapsing to only the first pattern
+    that matched."""
+
+    def test_correction_alias_and_definition_for_one_term_merge(self):
+        # Exact reviewer reproduction: three separate explicit statements
+        # about the same canonical term across a session.
+        messages = [
+            "I say fog of war, not blocked scope.",
+            "Fog of war, aka fog.",
+            "Fog of war means the unplanned part of a goal.",
+        ]
+        candidates = curation.find_candidates(messages)
+        matching = [c for c in candidates if c.term.lower() == "fog of war"]
+        self.assertEqual(len(matching), 1)
+        candidate = matching[0]
+        # The strongest explicit statement (a real definition) wins the
+        # rendered meaning and kind, rather than the correction that
+        # happened to be seen first.
+        self.assertEqual(candidate.kind, "definition")
+        self.assertEqual(candidate.meaning, "the unplanned part of a goal.")
+        # Evidence from every kind survives the merge.
+        self.assertEqual(candidate.not_terms, ("blocked scope",))
+        self.assertEqual(candidate.aka_terms, ("fog",))
+
+    def test_merge_is_order_independent(self):
+        # The same three statements in a different order must still merge
+        # to the identical result: deterministic, not first-match order.
+        messages = [
+            "Fog of war means the unplanned part of a goal.",
+            "Fog of war, aka fog.",
+            "I say fog of war, not blocked scope.",
+        ]
+        candidates = curation.find_candidates(messages)
+        matching = [c for c in candidates if c.term.lower() == "fog of war"]
+        self.assertEqual(len(matching), 1)
+        candidate = matching[0]
+        self.assertEqual(candidate.meaning, "the unplanned part of a goal.")
+        self.assertEqual(candidate.not_terms, ("blocked scope",))
+        self.assertEqual(candidate.aka_terms, ("fog",))
+
+    def test_repeated_aliases_and_corrections_deduplicate_case_insensitively(self):
+        messages = [
+            "I say fog of war, not blocked scope.",
+            "I say fog of war, not Blocked Scope.",
+            "Fog of war, aka fog.",
+            "Fog of war, aka Fog.",
+        ]
+        candidates = curation.find_candidates(messages)
+        matching = [c for c in candidates if c.term.lower() == "fog of war"]
+        self.assertEqual(len(matching), 1)
+        # Only one unique anti-term and one unique alias survive, keeping
+        # the first-seen casing.
+        self.assertEqual(matching[0].not_terms, ("blocked scope",))
+        self.assertEqual(matching[0].aka_terms, ("fog",))
+
+    def test_two_corrections_for_one_term_accumulate_distinct_anti_terms(self):
+        messages = [
+            "I say fog of war, not blocked scope.",
+            "I say fog of war, not open question.",
+        ]
+        candidates = curation.find_candidates(messages)
+        matching = [c for c in candidates if c.term.lower() == "fog of war"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].not_terms, ("blocked scope", "open question"))
+
+    def test_correction_and_alias_without_definition_merge_meaning_from_correction(self):
+        # No definition present: the correction (stronger than a bare
+        # alias) supplies the meaning, and the alias still contributes its
+        # aka term.
+        messages = [
+            "I say fog of war, not blocked scope.",
+            "Fog of war, aka fog.",
+        ]
+        candidates = curation.find_candidates(messages)
+        matching = [c for c in candidates if c.term.lower() == "fog of war"]
+        self.assertEqual(len(matching), 1)
+        candidate = matching[0]
+        self.assertEqual(candidate.kind, "correction")
+        self.assertEqual(candidate.not_terms, ("blocked scope",))
+        self.assertEqual(candidate.aka_terms, ("fog",))
+
+    def test_unrelated_terms_are_not_merged_together(self):
+        messages = [
+            "I say fog of war, not blocked scope.",
+            "I say wayfinder, not roadmap.",
+        ]
+        candidates = curation.find_candidates(messages)
+        terms = sorted(c.term.lower() for c in candidates)
+        self.assertEqual(terms, ["fog of war", "wayfinder"])
+
+
 class RepeatedTermRuleTest(unittest.TestCase):
     def test_repeated_term_below_threshold_is_ignored(self):
         messages = [
@@ -419,6 +567,65 @@ class RepeatedTermRuleTest(unittest.TestCase):
         matching = [c for c in candidates if c.term.lower() == "fog of war"]
         self.assertEqual(len(matching), 1)
         self.assertEqual(matching[0].kind, "correction")
+
+
+class PortabilityGateTest(unittest.TestCase):
+    """Per the issue's non-goal, project-specific vocabulary belongs in a
+    repo's own CONTEXT.md, never the personal glossary. The portability gate
+    must deterministically reject a candidate whose term or meaning names
+    itself as scoped to one specific codebase, even when it was stated as an
+    explicit correction/alias/definition that would otherwise always
+    qualify."""
+
+    def test_reviewer_reproduction_project_specific_definition_is_rejected(self):
+        # Exact reviewer reproduction: must not become writable.
+        messages = [
+            "Define payment widget as the checkout button unique to this "
+            "repository."
+        ]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_project_scoped_correction_is_rejected(self):
+        messages = ["I say deploy gate, not the release check specific to our codebase."]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_project_scoped_alias_is_rejected(self):
+        messages = [
+            "The onboarding flow unique to this project, aka the setup wizard."
+        ]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_project_scoped_term_text_itself_is_rejected(self):
+        messages = [
+            "Define the checkout button in this repository as the payment "
+            "widget everyone clicks."
+        ]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_portable_definition_still_qualifies(self):
+        # Positive control: a genuinely portable definition, structurally
+        # identical to the rejected case, must still be captured.
+        messages = [
+            "Define trajectory audit as a full replay of an agent run to "
+            "find where it drifted."
+        ]
+        candidates = curation.find_candidates(messages)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].term, "trajectory audit")
+
+    def test_portable_correction_still_qualifies(self):
+        # Positive control for the correction rule specifically.
+        candidates = curation.find_candidates(["I say wayfinder, not roadmap."])
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].term, "wayfinder")
+
+    def test_project_scoped_repeated_term_is_rejected(self):
+        messages = [
+            "The payment widget in this repository is the checkout button.",
+            "Fix the payment widget in this repository before release.",
+            "The payment widget in this repository broke again today.",
+        ]
+        self.assertEqual(curation.find_candidates(messages), [])
 
 
 class ApplyCandidatesTest(unittest.TestCase):
