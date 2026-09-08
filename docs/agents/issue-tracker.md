@@ -60,12 +60,12 @@ Workflow state is tracked via dedicated labels (open/closed status alone is not 
 
 | Phase | GitHub Label | Meaning |
 | ----- | ------------ | ------- |
-| `todo` | `aaf:todo` | Authorized and eligible to run |
-| `in-progress` | `aaf:in-progress` | Active under assignment |
-| `done` | `aaf:done` | Merged and completed |
-| `backlog` | `aaf:backlog` | Optional: awaiting operator approval |
-| `blocked` | `aaf:blocked` | Optional: waiting on dependency or decision |
-| `cancelled` | `aaf:cancelled` | Optional: abandoned with history preserved |
+| `todo` | `todo` | Authorized and eligible to run |
+| `in-progress` | `in-progress` | Active under assignment |
+| `done` | `done` | Merged and completed |
+| `backlog` | `backlog` | Optional: awaiting operator approval |
+| `blocked` | `blocked` | Optional: waiting on dependency or decision |
+| `cancelled` | `cancelled` | Optional: abandoned with history preserved |
 
 ### Issue Record Structure
 

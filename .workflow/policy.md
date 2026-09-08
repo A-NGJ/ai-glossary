@@ -43,12 +43,12 @@ Required phases: `todo`, `in-progress`, `done`.
 
 Optional states enabled: `backlog`, `blocked`, `cancelled`.
 Workflow state maps to GitHub Issues labels:
-- `todo` -> `aaf:todo`
-- `in-progress` -> `aaf:in-progress`
-- `done` -> `aaf:done`
-- `backlog` -> `aaf:backlog`
-- `blocked` -> `aaf:blocked`
-- `cancelled` -> `aaf:cancelled`
+- `todo` -> `todo`
+- `in-progress` -> `in-progress`
+- `done` -> `done`
+- `backlog` -> `backlog`
+- `blocked` -> `blocked`
+- `cancelled` -> `cancelled`
 
 <!-- CONTRACT-INVARIANT: Done semantics -->
 
