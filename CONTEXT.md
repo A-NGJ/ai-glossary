@@ -55,11 +55,34 @@ wins on conflict; the personal glossary is the cross-project fallback.
 _Avoid_: override, never-overlap
 
 **Curation**:
-Maintenance of the glossary file. During ordinary work, agents directly add
-explicit corrections and repeated coined terms, announcing each change; the
-user-invoked curation skill instead asks the operator to approve or reject every
-candidate. Deletion always requires prior consent.
+Maintenance of the glossary file, by either of two surfaces: automatic
+curation, which runs unattended at session end, or the curation skill, which
+runs interactively on operator request. Both add only unlocked terms and
+never delete or reword a locked term without explicit consent.
 _Avoid_: auto-capture
+
+**Automatic curation**:
+The unattended curation pass a session-end hook or plugin triggers after
+every Claude Code and Opencode session. It runs the same deterministic,
+offline, rule-based candidate engine as the curation skill — explicit
+corrections, aliases, and definitions unconditionally, plus distinctive
+terms the operator repeated often enough with a supporting contextual
+sentence — but writes every qualifying unlocked term directly to the
+canonical glossary without asking first, then reports each addition in
+passing. It considers only the operator's own messages from that session,
+never assistant wording. It never deletes a term or reworks a locked one.
+_Avoid_: auto-capture, background curation, per-turn curation
+
+**Curation hook**:
+The harness-side lifecycle adapter that triggers automatic curation: a
+Claude Code `SessionEnd` hook, or an Opencode plugin listening for the
+session-idle lifecycle event. Each adapter only gathers that session's
+messages and invokes the shared curation command; all parsing, candidate
+selection, and canonical writes live in the shared command, not the adapter.
+Setup installs both idempotently; uninstall removes only these two managed
+integrations, leaving unrelated hooks and plugins untouched.
+_Avoid_: webhook, trigger script
+
 
 **Lock**:
 A per-term flag (`locked` in the entry's italic group, or a leading 🔒)
@@ -76,9 +99,12 @@ _Avoid_: import, editable glossary
 
 **Setup skill**:
 The agent-performed installer and maintenance surface. Idempotently bootstraps
-the data home and glossary file, then synchronizes managed glossary blocks into
-global Claude Code and AGENTS.md instructions; uninstall removes those blocks
-and legacy import lines but leaves the data home.
+the data home and glossary file, synchronizes managed glossary blocks into
+global Claude Code and AGENTS.md instructions, and installs the curation hook
+integrations (a Claude Code `SessionEnd` hook and an Opencode plugin) that
+trigger automatic curation; uninstall removes those blocks, legacy import
+lines, and the managed hook integrations, but leaves the data home and any
+unrelated hooks or plugins untouched.
 _Avoid_: install script, installer plugin
 
 **Curation skill**:
@@ -94,7 +120,9 @@ canonical file, validated for grammar and alphabetical order, and synchronized
 to both managed blocks before continuing; terms remain unlocked unless the
 operator requests a lock. Rejection means not during this invocation. Ending
 produces no summary; when nothing qualifies, it reports that no useful candidate
-was found.
+was found. It remains available for an explicit, approval-based pass over the
+current conversation even though automatic curation runs unattended at every
+session's end.
 
 **Harness**:
 An AI tool that consumes the glossary (Claude Code is the first). The

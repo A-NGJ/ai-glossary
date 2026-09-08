@@ -2,10 +2,11 @@
 
 A personal, cross-project glossary for AI coding agents: your terms and
 one-line meanings, kept in one canonical user-global `glossary.md` and
-synchronized into global Claude Code and AGENTS.md instructions. The agent
-curates it in the open — adding and refining terms as your vocabulary settles,
-announcing each change, asking before any deletion, and never rewording locked
-entries.
+synchronized into global Claude Code and AGENTS.md instructions. The glossary
+curates itself in the open — automatically at the end of every Claude Code and
+Opencode session, adding explicit corrections and distinctive repeated terms,
+announcing each change, asking before any deletion, and never rewording
+locked entries.
 
 ## Install
 
@@ -28,11 +29,21 @@ complete content in clearly delimited managed blocks in:
 The files and their parent directories are created when absent. Existing
 instructions outside the managed blocks are preserved.
 
+Setup also idempotently installs automatic curation: a Claude Code
+`SessionEnd` hook and an Opencode plugin, both invoking the same offline,
+rule-based command at the end of every session. It reads only the operator's
+own messages from that session, and writes any qualifying unlocked term —
+explicit corrections and aliases unconditionally, plus distinctive terms
+repeated often enough with a supporting sentence — straight to the canonical
+glossary, reporting each addition in passing. It never deletes a term or
+rewords a locked one, and it makes no network or LLM calls.
+
 Run the user-invoked `curate-glossary` skill when you want an interactive
-review of vocabulary from the current conversation. It finds at most ten strong,
-portable candidates, asks you to approve or reject them one at a time, writes
-each approval immediately to the canonical file, and synchronizes both managed
-copies after every write.
+review of vocabulary from the current conversation instead of, or in addition
+to, that automatic pass. It finds at most ten strong, portable candidates,
+asks you to approve or reject them one at a time, writes each approval
+immediately to the canonical file, and synchronizes both managed copies after
+every write.
 
 Fallback without the `skills` CLI:
 
@@ -48,10 +59,11 @@ replaces each managed block with the canonical glossary's current complete
 content. This propagates glossary edits without duplicating blocks. Setup also
 removes legacy glossary `@`-import lines.
 
-Asking it to uninstall removes only managed blocks and legacy glossary import
-lines from both global instruction files. It preserves unrelated instructions
-and leaves the data home in place: deleting your vocabulary is your call, never
-a side effect.
+Asking it to uninstall removes only managed blocks, legacy glossary import
+lines, and the managed automatic-curation hook and plugin from both global
+instruction files. It preserves unrelated instructions, hooks, and plugins,
+and leaves the data home in place: deleting your vocabulary is your call,
+never a side effect.
 
 ## How it works
 
@@ -70,4 +82,5 @@ a side effect.
 - **Curation**: agents edit only the canonical glossary, then immediately rerun
   setup to regenerate both managed copies; managed blocks are never edited
   directly. `curate-glossary` applies this automatically after each approved
-  write.
+  write; automatic curation applies it after every qualifying candidate found
+  at session end.
