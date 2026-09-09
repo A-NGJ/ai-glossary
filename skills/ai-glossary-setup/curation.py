@@ -137,7 +137,7 @@ class GlossaryValidationError(ValueError):
     pass
 
 
-def parse_glossary(text: str) -> ParsedGlossary:
+def parse_glossary(text: str, *, strict: bool = True) -> ParsedGlossary:
     """Split ``text`` into preamble and entries, and validate the entry
     section's grammar and alphabetical order. Raises ``GlossaryValidationError``
     if any bullet line is malformed or if the entries are not alphabetized.
@@ -147,6 +147,12 @@ def parse_glossary(text: str) -> ParsedGlossary:
     not part of the flat alphabetized term list. Only bullets after the last
     standalone ``---`` line are treated as real entries. A glossary with no
     such separator treats every top-level bullet as a real entry.
+
+    ``strict`` (default ``True``) controls only the alphabetical-order check:
+    when ``True``, entries out of alphabetical order raise
+    ``GlossaryValidationError``; when ``False``, that check is skipped and
+    out-of-order input is parsed as-is. Per-bullet grammar validation always
+    runs regardless of ``strict``.
     """
 
     lines = text.splitlines(keepends=True)
@@ -184,7 +190,7 @@ def parse_glossary(text: str) -> ParsedGlossary:
         entries.append(entry)
 
     lowered = [entry.term.lower() for entry in entries]
-    if lowered != sorted(lowered):
+    if strict and lowered != sorted(lowered):
         raise GlossaryValidationError("glossary entries are not alphabetized")
 
     return ParsedGlossary(preamble=preamble, entries=entries, trailing_newline=trailing_newline)
@@ -845,7 +851,7 @@ def apply_candidates(
     applied, in the order they were applied.
     """
 
-    parsed = parse_glossary(text)
+    parsed = parse_glossary(text, strict=False)
     entries_by_lower = {entry.term.lower(): entry for entry in parsed.entries}
 
     applied: list[AppliedChange] = []
