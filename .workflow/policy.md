@@ -98,6 +98,23 @@ The local-project completion boundary is:
 - Priority is operator-controlled: a larger integer runs first; `0` is the default. Ties are broken by the lower issue ID.
 - Backlog enters Todo only after operator approval is recorded in Activity.
 
+## Decomposition
+
+<!-- CONTRACT-INVARIANT: single-issue test and decomposition -->
+
+Before dispatch, the orchestrator applies a single-issue test and records which conditions hold:
+
+1. one coherent outcome in one behavioral context with no separately deliverable part;
+2. completion evidence judgeable as one set;
+3. a context one specialist can hold whole and one reviewer can reconstruct from the issue and the integrated diff;
+4. no named uncertainty that changes another part's scope or approach.
+
+An issue failing any condition becomes an intent issue with an explicit exit criterion plus one child issue per independently deliverable outcome, each meeting the activation threshold, with contribution and explicit dependencies recorded separately in the tracker before dispatch. The orchestrator owns the split, since decomposition is tracker state; one assignment carries one issue.
+
+Required pre-implementation research becomes a separate blocking research issue. Add a dependent integration issue when the children's evidence would not prove their seam.
+
+Recorded operator approval is required before any child starts when the decomposition changes scope, order or delivery expectations. Ambiguity needing a product decision escalates instead of being split on agent judgment.
+
 ## Delivery and Isolation
 
 <!-- AAF-MANAGED:BEGIN isolation-invariants -->
