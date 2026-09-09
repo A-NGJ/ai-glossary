@@ -147,6 +147,12 @@ def parse_glossary(text: str, *, strict: bool = True) -> ParsedGlossary:
     not part of the flat alphabetized term list. Only bullets after the last
     standalone ``---`` line are treated as real entries. A glossary with no
     such separator treats every top-level bullet as a real entry.
+
+    ``strict`` (default ``True``) controls only the alphabetical-order check:
+    when ``True``, entries out of alphabetical order raise
+    ``GlossaryValidationError``; when ``False``, that check is skipped and
+    out-of-order input is parsed as-is. Per-bullet grammar validation always
+    runs regardless of ``strict``.
     """
 
     lines = text.splitlines(keepends=True)
