@@ -81,6 +81,17 @@ class GlossaryGrammarTest(unittest.TestCase):
         with self.assertRaises(curation.GlossaryValidationError):
             curation.parse_glossary(text)
 
+    def test_parse_glossary_non_strict_accepts_out_of_order_entries(self):
+        text = "---\n\n- **zebra** — z.\n- **alpha** — a.\n"
+        parsed = curation.parse_glossary(text, strict=False)
+        terms = [entry.term for entry in parsed.entries]
+        self.assertEqual(terms, ["zebra", "alpha"])
+
+    def test_parse_glossary_strict_defaults_to_true(self):
+        text = "---\n\n- **zebra** — z.\n- **alpha** — a.\n"
+        with self.assertRaises(curation.GlossaryValidationError):
+            curation.parse_glossary(text)
+
     def test_parse_glossary_rejects_malformed_entry_line(self):
         text = "---\n\n- **alpha** — a.\nnot a bullet at all\n"
         with self.assertRaises(curation.GlossaryValidationError):
@@ -681,6 +692,13 @@ class ApplyCandidatesTest(unittest.TestCase):
         self.assertEqual(
             [entry.term for entry in parsed.entries], ["alpha", "bravo", "charlie"]
         )
+
+    def test_accepts_unsorted_input_and_sorts_the_output(self):
+        unsorted_text = "---\n\n- **zebra** — z.\n- **alpha** — a.\n"
+        updated, applied = curation.apply_candidates(unsorted_text, [])
+        self.assertEqual(applied, [])
+        parsed = curation.parse_glossary(updated)  # strict: must be sorted
+        self.assertEqual([entry.term for entry in parsed.entries], ["alpha", "zebra"])
 
     def test_never_modifies_locked_term(self):
         candidates = [
