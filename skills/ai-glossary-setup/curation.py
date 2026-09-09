@@ -354,13 +354,31 @@ _TERM = r"[a-zA-Z][a-zA-Z0-9 _-]{1,40}?"
 # repetition) would otherwise accept it.
 _PROJECT_SCOPE_RE = re.compile(
     r"\b(?:this|our|the current)\s+"
-    r"(?:repo|repository|codebase|monorepo|project|application|app|service)\b",
+    r"(?:repo|repository|codebase|monorepo|project|application|app|service|workspace)\b",
+    re.IGNORECASE,
+)
+
+# Companion patterns for self-scoping phrasings that don't fit the
+# "this/our/the current <noun>" shape above: an explicit "unique/specific/
+# proprietary to <name-or-scope>" or "only used/defined/exists in <scope>"
+# reference is just as much a portability disqualifier, whether the scope is
+# a generic noun ("this workspace") or a proper noun ("Acme", "FooCorp").
+_PROJECT_SCOPE_PHRASE_RE = re.compile(
+    r"\b(?:"
+    r"unique to (?:this|our|the)\s+[a-z0-9_-]+"
+    r"|specific to\s+[a-z][\w-]*"
+    r"|proprietary to\s+[a-z][\w-]*"
+    r"|only (?:used|defined|exists) in (?:this|our|the)\s+[a-z0-9_-]+"
+    r")\b",
     re.IGNORECASE,
 )
 
 
 def _is_portable(term: str, meaning: str) -> bool:
-    return not (_PROJECT_SCOPE_RE.search(term) or _PROJECT_SCOPE_RE.search(meaning))
+    for text in (term, meaning):
+        if _PROJECT_SCOPE_RE.search(text) or _PROJECT_SCOPE_PHRASE_RE.search(text):
+            return False
+    return True
 
 
 _CORRECTION_PATTERNS = [
@@ -769,37 +787,94 @@ class AppliedChange:
     meaning: str
 
 
+def _refine_existing_entry(
+    entry: GlossaryEntry, candidate: Candidate
+) -> Optional[str]:
+    """Merge a candidate's new metadata into an already-existing unlocked
+    entry in place. Returns the resulting meaning when something actually
+    changed (and thus qualifies as an applied refinement), or ``None`` when
+    the candidate carried nothing the entry didn't already have.
+
+    Enriching an existing unlocked entry with new alias/anti-term metadata,
+    or a stronger explicit meaning, is not "adding a duplicate" — the issue's
+    duplicate-avoidance rule is about never writing a second entry for a term
+    that already exists, not about refusing to improve the one entry that's
+    already there. A locked entry is never passed to this function.
+    """
+
+    merged_not_terms = _dedupe_preserve_order((*entry.not_terms, *candidate.not_terms))
+    merged_aka_terms = _dedupe_preserve_order((*entry.aka_terms, *candidate.aka_terms))
+
+    # Only an explicit definition is unambiguously stronger than whatever
+    # meaning the entry already carries (hand-written, or from an earlier
+    # correction/alias/repeated candidate). Per `_EXPLICIT_KIND_PRIORITY`,
+    # definition outranks both correction and alias, and a merely "repeated"
+    # candidate carries no explicit meaning strong enough to override text
+    # already in the glossary.
+    new_meaning = entry.meaning
+    if candidate.kind == "definition" and candidate.meaning != entry.meaning:
+        new_meaning = candidate.meaning
+
+    changed = (
+        merged_not_terms != entry.not_terms
+        or merged_aka_terms != entry.aka_terms
+        or new_meaning != entry.meaning
+    )
+    if not changed:
+        return None
+
+    entry.not_terms = merged_not_terms
+    entry.aka_terms = merged_aka_terms
+    entry.meaning = new_meaning
+    return new_meaning
+
+
 def apply_candidates(
     text: str, candidates: Iterable[Candidate]
 ) -> tuple[str, list[AppliedChange]]:
-    """Insert qualifying candidates into the canonical glossary text.
+    """Apply qualifying candidates to the canonical glossary text.
 
-    Never modifies an existing entry: a term that already exists (locked or
-    not) is skipped as a duplicate. Never deletes anything. Returns the
-    complete updated glossary text (already re-alphabetized) and the list of
-    changes actually applied, in the order they were applied.
+    A term with no existing entry is inserted as a new unlocked entry. A
+    term that already has an unlocked entry is refined in place — new
+    not-terms/aka-terms merge in (deduplicated case-insensitively, first-seen
+    order preserved) and the meaning is updated when the candidate supplies a
+    stronger explicit one — rather than being skipped outright; a refinement
+    that changes nothing real is skipped as a no-op duplicate. A locked entry
+    is never modified. Never deletes anything. Returns the complete updated
+    glossary text (already re-alphabetized) and the list of changes actually
+    applied, in the order they were applied.
     """
 
     parsed = parse_glossary(text)
-    existing_lower = {entry.term.lower() for entry in parsed.entries}
+    entries_by_lower = {entry.term.lower(): entry for entry in parsed.entries}
 
     applied: list[AppliedChange] = []
     new_entries = list(parsed.entries)
 
     for candidate in candidates:
         key = candidate.term.lower()
-        if key in existing_lower:
+        existing = entries_by_lower.get(key)
+
+        if existing is None:
+            entry = GlossaryEntry(
+                term=candidate.term,
+                meaning=candidate.meaning,
+                locked=False,
+                not_terms=candidate.not_terms,
+                aka_terms=candidate.aka_terms,
+            )
+            new_entries.append(entry)
+            entries_by_lower[key] = entry
+            applied.append(AppliedChange(term=candidate.term, meaning=candidate.meaning))
             continue
-        entry = GlossaryEntry(
-            term=candidate.term,
-            meaning=candidate.meaning,
-            locked=False,
-            not_terms=candidate.not_terms,
-            aka_terms=candidate.aka_terms,
-        )
-        new_entries.append(entry)
-        existing_lower.add(key)
-        applied.append(AppliedChange(term=candidate.term, meaning=candidate.meaning))
+
+        if existing.locked:
+            continue
+
+        refined_meaning = _refine_existing_entry(existing, candidate)
+        if refined_meaning is None:
+            continue
+        applied.append(AppliedChange(term=existing.term, meaning=refined_meaning))
 
     new_entries.sort(key=lambda entry: entry.term.lower())
     updated = ParsedGlossary(

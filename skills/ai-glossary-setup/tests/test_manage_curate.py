@@ -170,6 +170,51 @@ class CurateActionTest(ManageCuratePaths):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("wayfinder", result.stdout)
 
+    def test_curate_resynchronizes_stale_managed_copy_with_no_new_candidates(self):
+        # Simulate a prior invocation that wrote the canonical glossary but
+        # then failed to synchronize one managed copy (a crash, a full disk,
+        # a permission error partway through) — the classic partial-failure
+        # scenario. The next invocation, even finding no new candidates,
+        # must still bring the stale copy back in line with the canonical
+        # file rather than treating "nothing new to add" as "nothing to do".
+        self.run_tool("setup")
+        canonical = self.data_home / "glossary.md"
+        canonical.write_text(
+            canonical.read_text(encoding="utf-8").rstrip("\n")
+            + "\n- **fog of war** — the unplanned part of a goal.\n",
+            encoding="utf-8",
+        )
+        # Both managed copies still reflect the pre-append canonical content
+        # - as if a previous invocation wrote the canonical file directly
+        # but crashed before synchronizing either copy.
+        stale_agents_text = self.agents.read_text(encoding="utf-8")
+
+        transcript = claude_transcript("Just a normal unremarkable message.")
+        result = self.run_tool("curate", "--source", "claude", input_text=transcript)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no qualifying", result.stdout)
+        agents_text = self.agents.read_text(encoding="utf-8")
+        self.assertNotEqual(agents_text, stale_agents_text)
+        self.assertIn("fog of war", agents_text)
+        claude_text = self.claude.read_text(encoding="utf-8")
+        self.assertIn("fog of war", claude_text)
+
+    def test_curate_continues_to_second_target_when_first_sync_target_fails(self):
+        transcript = claude_transcript("I say fog of war, not blocked scope.")
+        # Make the claude-file target unwritable as a directory so
+        # synchronizing it fails, while the agents-file target is healthy.
+        self.claude.parent.mkdir(parents=True, exist_ok=True)
+        self.claude.mkdir()
+
+        result = self.run_tool("curate", "--source", "claude", input_text=transcript)
+
+        self.assertNotEqual(result.returncode, 0)
+        agents_text = self.agents.read_text(encoding="utf-8")
+        self.assertIn("fog of war", agents_text)
+        glossary = (self.data_home / "glossary.md").read_text(encoding="utf-8")
+        self.assertIn("fog of war", glossary)
+
     def test_curate_only_considers_operator_messages_from_transcript(self):
         transcript = "\n".join(
             [
@@ -358,6 +403,46 @@ class OpencodePluginLifecycleTest(ManageCuratePaths):
         result = self.run_tool("uninstall")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.opencode_plugin_dir.exists())
+
+    def test_install_refuses_to_overwrite_foreign_file_at_reserved_plugin_name(self):
+        self.opencode_plugin_dir.mkdir(parents=True)
+        plugin_file = self.opencode_plugin_dir / manage.OPENCODE_PLUGIN_NAME
+        plugin_file.write_text("// someone else's plugin\n", encoding="utf-8")
+
+        with self.assertRaises(ValueError):
+            manage.install_opencode_plugin(
+                self.opencode_plugin_dir, self.data_home, self.claude, self.agents
+            )
+
+        self.assertEqual(
+            plugin_file.read_text(encoding="utf-8"), "// someone else's plugin\n"
+        )
+
+    def test_setup_action_fails_and_preserves_foreign_file_at_reserved_plugin_name(self):
+        self.opencode_plugin_dir.mkdir(parents=True)
+        plugin_file = self.opencode_plugin_dir / manage.OPENCODE_PLUGIN_NAME
+        plugin_file.write_text("// someone else's plugin\n", encoding="utf-8")
+
+        result = self.run_tool("setup")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            plugin_file.read_text(encoding="utf-8"), "// someone else's plugin\n"
+        )
+
+    def test_install_overwrites_our_own_previously_managed_plugin_file(self):
+        self.opencode_plugin_dir.mkdir(parents=True)
+        plugin_file = self.opencode_plugin_dir / manage.OPENCODE_PLUGIN_NAME
+        plugin_file.write_text(
+            f"// {manage.OPENCODE_PLUGIN_MARKER}\n// stale content\n", encoding="utf-8"
+        )
+
+        changed = manage.install_opencode_plugin(
+            self.opencode_plugin_dir, self.data_home, self.claude, self.agents
+        )
+
+        self.assertTrue(changed)
+        self.assertIn(manage.OPENCODE_PLUGIN_MARKER, plugin_file.read_text(encoding="utf-8"))
 
     def test_uninstall_leaves_foreign_file_with_our_reserved_name_untouched(self):
         self.opencode_plugin_dir.mkdir(parents=True)

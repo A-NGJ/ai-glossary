@@ -63,14 +63,15 @@ _Avoid_: auto-capture
 
 **Automatic curation**:
 The unattended curation pass a session-end hook or plugin triggers after
-every Claude Code and Opencode session. It runs the same deterministic,
-offline, rule-based candidate engine as the curation skill — explicit
-corrections, aliases, and definitions unconditionally, plus distinctive
-terms the operator repeated often enough with a supporting contextual
-sentence — but writes every qualifying unlocked term directly to the
-canonical glossary without asking first, then reports each addition in
-passing. It considers only the operator's own messages from that session,
-never assistant wording. It never deletes a term or reworks a locked one.
+every Claude Code and Opencode session. It runs its own deterministic,
+offline, rule-based candidate engine — separate from the interactive
+curation skill's LLM-judgment path — covering explicit corrections,
+aliases, and definitions unconditionally, plus distinctive terms the
+operator repeated often enough with a supporting contextual sentence. It
+writes every qualifying unlocked term directly to the canonical glossary
+without asking first, then reports each addition in passing. It considers
+only the operator's own messages from that session, never assistant
+wording. It never deletes a term or reworks a locked one.
 _Avoid_: auto-capture, background curation, per-turn curation
 
 **Curation hook**:

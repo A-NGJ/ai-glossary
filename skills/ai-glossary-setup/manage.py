@@ -11,6 +11,7 @@ import shlex
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 try:
     import fcntl
@@ -207,6 +208,20 @@ def curate_from_messages(
     read-candidate-write-sync sequence so a concurrent invocation from
     another session cannot interleave and lose an update.
 
+    Synchronization is attempted against the canonical content on every
+    invocation, independently of whether this pass itself applied any new
+    candidates: if a prior invocation wrote the canonical glossary but then
+    failed to synchronize one or both managed copies (a crash, a permission
+    error, a full disk), those copies are stale relative to the canonical
+    file and get no further chances to catch up once new candidates stop
+    appearing (they'd already be duplicates). Comparing against the current
+    canonical content on every run, not only a run that changed it, is what
+    lets a subsequent invocation recover a synchronization that a previous
+    one dropped. Each target is attempted independently — a failure writing
+    one target never prevents the other from being brought up to date; the
+    first failure (if any) is re-raised only after every target has had its
+    chance.
+
     Returns the list of changes actually applied (empty when there was
     nothing new to add)."""
 
@@ -216,6 +231,7 @@ def curate_from_messages(
     template = Path(__file__).resolve().parent / "templates" / "glossary.md"
     targets = (claude_file, agents_file)
 
+    sync_error: Optional[BaseException] = None
     with _LockFile(lock_file):
         if not glossary_file.exists():
             atomic_write(glossary_file, template.read_text(encoding="utf-8"))
@@ -224,12 +240,22 @@ def curate_from_messages(
         candidates = curation.find_candidates(messages, min_repetitions=min_repetitions)
         updated_text, applied = curation.apply_candidates(current, candidates)
 
+        canonical_text = current
         if applied:
             atomic_write(glossary_file, updated_text)
-            guidance = synchronization_guidance(data_home, *targets)
-            for target in targets:
-                updated_target = setup_target(read_target(target), updated_text, guidance)
+            canonical_text = updated_text
+
+        guidance = synchronization_guidance(data_home, *targets)
+        for target in targets:
+            try:
+                updated_target = setup_target(read_target(target), canonical_text, guidance)
                 write_if_changed(target, updated_target)
+            except (OSError, UnicodeError, ValueError) as error:
+                if sync_error is None:
+                    sync_error = error
+
+    if sync_error is not None:
+        raise sync_error
 
     return applied
 
@@ -498,9 +524,24 @@ def install_opencode_plugin(
     plugin_dir: Path, data_home: Path, claude_file: Path, agents_file: Path
 ) -> bool:
     """Idempotently install the dedicated Opencode plugin file, never
-    touching unrelated files in the plugin directory."""
+    touching unrelated files in the plugin directory.
+
+    Our reserved filename can already be occupied by a file we didn't
+    create — someone manually placed an unrelated plugin there. The same
+    managed-marker check ``uninstall_opencode_plugin`` uses to leave a
+    foreign file alone on removal applies symmetrically here: refuse to
+    overwrite a file at our reserved name unless it either doesn't exist yet
+    or already carries our marker (meaning a previous install of ours owns
+    it)."""
 
     plugin_file = plugin_dir / OPENCODE_PLUGIN_NAME
+    if plugin_file.exists():
+        existing_text = plugin_file.read_text(encoding="utf-8")
+        if OPENCODE_PLUGIN_MARKER not in existing_text:
+            raise ValueError(
+                f"refusing to overwrite {plugin_file}: it already exists and "
+                "was not created by ai-glossary-setup (missing managed marker)"
+            )
     source = _opencode_plugin_source(data_home, claude_file, agents_file)
     plugin_dir.mkdir(parents=True, exist_ok=True)
     return write_if_changed(plugin_file, source)

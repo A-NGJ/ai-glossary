@@ -627,6 +627,46 @@ class PortabilityGateTest(unittest.TestCase):
         ]
         self.assertEqual(curation.find_candidates(messages), [])
 
+    def test_unique_to_this_workspace_is_rejected(self):
+        messages = [
+            "Define build cache as the artifact directory unique to this "
+            "workspace."
+        ]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_specific_to_named_org_is_rejected(self):
+        messages = ["I say deploy gate, not the release check specific to Acme."]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_proprietary_to_named_org_is_rejected(self):
+        messages = [
+            "The onboarding flow proprietary to FooCorp, aka the setup wizard."
+        ]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_only_used_in_this_codebase_is_rejected(self):
+        messages = [
+            "Define shim layer as the adapter only used in this codebase."
+        ]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_only_defined_in_our_service_is_rejected(self):
+        messages = ["I say retry budget, not the backoff limit only defined in our service."]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_only_exists_in_the_monorepo_is_rejected(self):
+        messages = [
+            "Define shared kernel as the module that only exists in the "
+            "monorepo."
+        ]
+        self.assertEqual(curation.find_candidates(messages), [])
+
+    def test_our_workspace_scope_is_rejected(self):
+        # The base scope regex now also recognizes "workspace" as a scoped
+        # noun alongside repo/project/codebase/etc.
+        messages = ["I say lockfile, not the dependency snapshot in our workspace."]
+        self.assertEqual(curation.find_candidates(messages), [])
+
 
 class ApplyCandidatesTest(unittest.TestCase):
     def test_inserts_new_term_alphabetized_and_revalidates(self):
@@ -662,6 +702,119 @@ class ApplyCandidatesTest(unittest.TestCase):
                 meaning="a different meaning.",
                 kind="repeated",
                 evidence="",
+            )
+        ]
+        updated, applied = curation.apply_candidates(POPULATED_GLOSSARY, candidates)
+        self.assertEqual(applied, [])
+        self.assertEqual(updated, POPULATED_GLOSSARY)
+
+    def test_merges_new_aka_and_not_terms_into_existing_unlocked_entry(self):
+        candidates = [
+            curation.Candidate(
+                term="alpha",
+                meaning="a different meaning.",
+                kind="repeated",
+                evidence="",
+                not_terms=("first-thing",),
+                aka_terms=("primary",),
+            )
+        ]
+        updated, applied = curation.apply_candidates(POPULATED_GLOSSARY, candidates)
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(applied[0].term, "alpha")
+        parsed = curation.parse_glossary(updated)
+        entry = parsed.by_term_lower()["alpha"]
+        # A merely "repeated" candidate's meaning never overrides the
+        # existing one - only new metadata merges in.
+        self.assertEqual(entry.meaning, "first term.")
+        self.assertEqual(entry.not_terms, ("first-thing",))
+        self.assertEqual(entry.aka_terms, ("primary",))
+
+    def test_merge_deduplicates_aka_and_not_terms_case_insensitively_preserving_order(self):
+        glossary = (
+            "---\n\n"
+            "- **alpha** — first term. *(not: legacy-alpha; aka: A)*\n"
+        )
+        candidates = [
+            curation.Candidate(
+                term="alpha",
+                meaning="a different meaning.",
+                kind="correction",
+                evidence="",
+                not_terms=("LEGACY-ALPHA", "old-alpha"),
+                aka_terms=("a", "primary"),
+            )
+        ]
+        updated, applied = curation.apply_candidates(glossary, candidates)
+        self.assertEqual(len(applied), 1)
+        parsed = curation.parse_glossary(updated)
+        entry = parsed.by_term_lower()["alpha"]
+        self.assertEqual(entry.not_terms, ("legacy-alpha", "old-alpha"))
+        self.assertEqual(entry.aka_terms, ("A", "primary"))
+
+    def test_stronger_definition_updates_existing_entrys_meaning(self):
+        glossary = "---\n\n- **alpha** — a placeholder meaning.\n"
+        candidates = [
+            curation.Candidate(
+                term="alpha",
+                meaning="the operator's real definition of alpha.",
+                kind="definition",
+                evidence="",
+            )
+        ]
+        updated, applied = curation.apply_candidates(glossary, candidates)
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(applied[0].meaning, "the operator's real definition of alpha.")
+        parsed = curation.parse_glossary(updated)
+        entry = parsed.by_term_lower()["alpha"]
+        self.assertEqual(entry.meaning, "the operator's real definition of alpha.")
+
+    def test_correction_and_alias_candidates_never_override_existing_meaning(self):
+        glossary = "---\n\n- **alpha** — the original meaning.\n"
+        candidates = [
+            curation.Candidate(
+                term="alpha",
+                meaning="the operator's canonical term for something else.",
+                kind="correction",
+                evidence="",
+                not_terms=("something-else",),
+            )
+        ]
+        updated, applied = curation.apply_candidates(glossary, candidates)
+        self.assertEqual(len(applied), 1)
+        parsed = curation.parse_glossary(updated)
+        entry = parsed.by_term_lower()["alpha"]
+        self.assertEqual(entry.meaning, "the original meaning.")
+        self.assertEqual(entry.not_terms, ("something-else",))
+
+    def test_refinement_that_changes_nothing_is_skipped_as_a_no_op(self):
+        glossary = (
+            "---\n\n"
+            "- **alpha** — first term. *(not: beta; aka: A)*\n"
+        )
+        candidates = [
+            curation.Candidate(
+                term="alpha",
+                meaning="a different meaning entirely.",
+                kind="correction",
+                evidence="",
+                not_terms=("beta",),
+                aka_terms=("a",),
+            )
+        ]
+        updated, applied = curation.apply_candidates(glossary, candidates)
+        self.assertEqual(applied, [])
+        self.assertEqual(updated, glossary)
+
+    def test_refinement_never_touches_a_locked_entry(self):
+        candidates = [
+            curation.Candidate(
+                term="charlie",
+                meaning="the definitive real meaning.",
+                kind="definition",
+                evidence="",
+                not_terms=("delta",),
+                aka_terms=("gamma",),
             )
         ]
         updated, applied = curation.apply_candidates(POPULATED_GLOSSARY, candidates)
