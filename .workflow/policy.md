@@ -22,6 +22,7 @@
 - Conversations, harness state, PR descriptions, and second trackers are not authoritative records.
 - Only the orchestrator writes issue records, updates metadata, or changes issue workflow state.
 - Specialists and reviewers receive tracker records as read-only inputs.
+- Every assignment, including in an isolated worktree, receives readable policy and its linked authority as accessible absolute source paths or exact read-only snapshots carrying source paths and content hashes. Dispatch blocks if authority is inaccessible; the orchestrator revalidates authority before accepting results.
 
 ## Roles
 
@@ -29,9 +30,10 @@
 
 - **Orchestrator**: Exactly one coordinates each active intent graph. It alone mutates workflow state, delegates assignments, owns the durable issue branch and draft PR, posts research, and mechanically applies unchanged conflict-free commits. It never edits product artifacts or resolves conflicts.
 - **Implementation Specialist**: Owns one bounded repository-changing assignment at a time. It cannot broaden intent, weaken completion, write tracker state, own the durable issue branch, or communicate/delegate directly to specialists. All communication goes through the orchestrator and artifacts.
-- **Researcher**: Read-only. Sourced findings, access dates, uncertainty, and implications go to the orchestrator. Receives no worktree, modifies no artifacts/state, and makes no product-direction decisions. Pre-implementation research is a separate blocking issue. Reports are posted as append-only research comments.
-- **Reviewer**: Fresh independent read-only reviewer assesses every correctness-bearing integrated attempt or research report, returning `Accepted`, `Changes Required`, or `Evidence Required`. Reviewers cannot modify artifacts or workflow state.
+- **Researcher**: Read-only. Sourced findings, access dates, uncertainty, and implications go to the orchestrator. Receives no worktree, modifies no artifacts/state, and makes no product-direction decisions. Pre-implementation research is a separate blocking issue. Reports are posted as append-only research comments. Stateful experiments or generated repository artifacts are prototype/implementation assignments, not read-only research.
+- **Reviewer**: Fresh independent read-only reviewer assesses every correctness-bearing integrated attempt or research report, returning `Accepted`, `Changes Required`, or `Evidence Required`. Reviewers cannot modify artifacts or workflow state. Each finding is reported as either against a stated requirement of the issue under review or as a defect observed outside those requirements. Reviewers receive no earlier round's findings and hold no authority over loop termination.
 - **Operator**: Explicitly approves every implementation PR; only an operator merges it. Agents never approve or merge on the operator's behalf.
+- No agent performs cross-harness session resume, automatic package updates, or automatic repository-policy migrations as an incidental part of any assignment; each needs its own bounded, operator-approved scope.
 
 ## States
 
@@ -122,6 +124,8 @@ The local-project completion boundary is:
 - Maximum Changes Required verdicts for the same unresolved claim: 2.
 - The second Changes Required verdict triggers operator escalation before another implementation attempt.
 - Hitting the retry limit requires changed parameters or approach, or operator escalation.
+- Maximum review rounds per issue (unconditional, lifetime): 3. A review round is any recorded verdict that is not `Accepted` — counted whether or not its findings repeat an earlier round's, so the bound cannot be avoided by raising a different finding each round. Before dispatching any assignment for an issue already under review, the orchestrator counts that issue's recorded non-accepted verdicts and does not dispatch at the maximum. At the maximum it clears the active specialist, records the escalation with every outstanding finding and its routing, keeps the issue In Progress, and stops. The count resets only on recorded operator re-authorization.
+- Route reviewer findings by what the issue promised: a finding against a stated requirement of the issue under review stays in that issue for its next implementation assignment; a defect observed outside those requirements becomes a successor issue, with the issue under review depending on that successor only when the defect blocks its acceptance. Never hold an issue open for defects it never promised to resolve.
 
 <!-- CONTRACT-INVARIANT: failure handling invariants -->
 
