@@ -3,10 +3,11 @@
 A personal, cross-project glossary for AI coding agents: your terms and
 one-line meanings, kept in one canonical user-global `glossary.md` and
 synchronized into global Claude Code and AGENTS.md instructions. The glossary
-curates itself in the open — automatically at the end of every Claude Code and
-Opencode session, adding explicit corrections and distinctive repeated terms,
-announcing each change, asking before any deletion, and never rewording
-locked entries.
+is curated in the open by the `curate-glossary` skill, which an agent invokes
+from the skill's own description whenever the conversation surfaces portable
+vocabulary worth keeping — a coined term, an explicit correction, an alias —
+and every addition is approved one candidate at a time, asking before any
+deletion and never rewording locked entries.
 
 ## Install
 
@@ -29,21 +30,16 @@ complete content in clearly delimited managed blocks in:
 The files and their parent directories are created when absent. Existing
 instructions outside the managed blocks are preserved.
 
-Setup also idempotently installs automatic curation: a Claude Code
-`SessionEnd` hook and an Opencode plugin, both invoking the same offline,
-rule-based command at the end of every session. It reads only the operator's
-own messages from that session, and writes any qualifying unlocked term —
-explicit corrections and aliases unconditionally, plus distinctive terms
-repeated often enough with a supporting sentence — straight to the canonical
-glossary, reporting each addition in passing. It never deletes a term or
-rewords a locked one, and it makes no network or LLM calls.
+Vocabulary is curated by the `curate-glossary` skill. Agents invoke it from
+the skill's own description when the conversation surfaces vocabulary worth
+keeping — a coined term, an explicit correction, an alias — or whenever you
+ask for it. Curation happens in the open, in the conversation; there is no
+background or unattended pass.
 
-Run the user-invoked `curate-glossary` skill when you want an interactive
-review of vocabulary from the current conversation instead of, or in addition
-to, that automatic pass. It finds at most ten strong, portable candidates,
-asks you to approve or reject them one at a time, writes each approval
-immediately to the canonical file, and synchronizes both managed copies after
-every write.
+The skill finds at most ten strong, portable candidates, asks you to approve
+or reject them one at a time, writes each approval immediately to the
+canonical file, and synchronizes both managed copies after every write. It
+never deletes a term or rewords a locked one without your explicit consent.
 
 Fallback without the `skills` CLI:
 
@@ -59,9 +55,8 @@ replaces each managed block with the canonical glossary's current complete
 content. This propagates glossary edits without duplicating blocks. Setup also
 removes legacy glossary `@`-import lines.
 
-Asking it to uninstall removes only managed blocks, legacy glossary import
-lines, and the managed automatic-curation hook and plugin from both global
-instruction files. It preserves unrelated instructions, hooks, and plugins,
+Asking it to uninstall removes only managed blocks and legacy glossary import
+lines from the global instruction files. It preserves unrelated instructions
 and leaves the data home in place: deleting your vocabulary is your call,
 never a side effect.
 
@@ -81,6 +76,5 @@ never a side effect.
   the personal glossary holds portable meta-language, not project domain terms.
 - **Curation**: agents edit only the canonical glossary, then immediately rerun
   setup to regenerate both managed copies; managed blocks are never edited
-  directly. `curate-glossary` applies this automatically after each approved
-  write; automatic curation applies it after every qualifying candidate found
-  at session end.
+  directly. The `curate-glossary` skill drives this: each approved candidate is
+  written to the canonical file and synchronized before the next question.

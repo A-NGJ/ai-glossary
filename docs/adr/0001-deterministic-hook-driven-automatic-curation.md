@@ -1,5 +1,9 @@
 # Deterministic, hook-driven automatic curation
 
+_Superseded by [ADR-0002](0002-description-triggered-model-invoked-curation.md)
+— description-triggered, model-invoked curation. The reasoning below is
+retained for history._
+
 The glossary previously only grew when the operator remembered to invoke the
 manual `curate-glossary` skill, so useful vocabulary could be lost at the end
 of an unremembered session. We decided to trigger curation automatically at
