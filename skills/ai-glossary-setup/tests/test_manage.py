@@ -307,5 +307,99 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertIn("without a matching end marker", result.stderr)
 
 
+class ManageMissingDefaultTargetsTest(unittest.TestCase):
+    """A default target (``--claude-file``/``--agents-file`` left unspecified)
+    that doesn't already exist on disk names a harness that isn't installed;
+    setup must leave it alone instead of creating it. An explicitly passed
+    target is always written, whether or not it already exists."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.data_home = self.root / "config" / "ai-glossary"
+        self.claude = self.root / "claude" / "CLAUDE.md"
+        self.codex_home = self.root / "codex-home"
+        self.codex_home.mkdir(parents=True)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_setup_skips_nonexistent_default_agents_file(self):
+        default_agents_file = self.codex_home / "AGENTS.md"
+        self.assertFalse(default_agents_file.exists())
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "setup",
+                "--data-home",
+                str(self.data_home),
+                "--claude-file",
+                str(self.claude),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "CODEX_HOME": str(self.codex_home)},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(default_agents_file.exists())
+        self.assertTrue(self.claude.exists())
+        block = self.claude.read_text(encoding="utf-8")
+        self.assertIn(manage.START, block)
+        self.assertNotIn("AGENTS.md", block)
+        self.assertNotIn("--agents-file", block)
+
+    def test_setup_writes_explicit_nonexistent_agents_file(self):
+        agents = self.root / "codex" / "AGENTS.md"
+        self.assertFalse(agents.exists())
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "setup",
+                "--data-home",
+                str(self.data_home),
+                "--claude-file",
+                str(self.claude),
+                "--agents-file",
+                str(agents),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "CODEX_HOME": str(self.codex_home)},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(agents.exists())
+        self.assertIn(manage.START, agents.read_text(encoding="utf-8"))
+
+
+class SynchronizationGuidanceSingleTargetTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.data_home = self.root / "config" / "ai-glossary"
+        self.claude_file = self.root / "claude" / "CLAUDE.md"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_only_mentions_and_syncs_the_present_target(self):
+        guidance = manage.synchronization_guidance(
+            self.data_home, self.claude_file, None
+        )
+
+        self.assertIn(str(self.claude_file), guidance)
+        self.assertNotIn("AGENTS.md", guidance)
+        self.assertNotIn("--agents-file", guidance)
+        self.assertIn("is a generated copy; never", guidance)
+        self.assertNotIn("generated copies; never edit either block", guidance)
+
+
 if __name__ == "__main__":
     unittest.main()

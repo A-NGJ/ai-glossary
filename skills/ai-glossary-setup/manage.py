@@ -11,6 +11,7 @@ import shlex
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 START = "<!-- ai-glossary:managed:start -->"
 END = "<!-- ai-glossary:managed:end -->"
@@ -75,25 +76,46 @@ def unmanaged_text(text: str) -> str:
 
 
 def synchronization_guidance(
-    data_home: Path, claude_file: Path, agents_file: Path
+    data_home: Path,
+    claude_file: Optional[Path],
+    agents_file: Optional[Path],
 ) -> str:
+    if claude_file is None and agents_file is None:
+        raise ValueError("synchronization_guidance requires at least one target")
+
     glossary_file = data_home / "glossary.md"
-    command_args = (
+    command_args = [
         sys.executable,
         str(Path(__file__).resolve()),
         "setup",
         "--data-home",
         str(data_home),
-        "--claude-file",
-        str(claude_file),
-        "--agents-file",
-        str(agents_file),
-    )
+    ]
+    if claude_file is not None:
+        command_args += ["--claude-file", str(claude_file)]
+    if agents_file is not None:
+        command_args += ["--agents-file", str(agents_file)]
     command = shlex.join(command_args)
     curation_metadata = json.dumps(
         {"canonical_glossary": str(glossary_file), "sync_command": command},
         separators=(",", ":"),
     )
+
+    if claude_file is not None and agents_file is not None:
+        peer_prose = (
+            f"This managed block in `{claude_file}` and its peer in "
+            f"`{agents_file}` are generated copies; never edit either block "
+            "directly. After every canonical edit, immediately synchronize "
+            "both generated copies by running:"
+        )
+    else:
+        present = claude_file if claude_file is not None else agents_file
+        peer_prose = (
+            f"This managed block in `{present}` is a generated copy; never "
+            "edit it directly. After every canonical edit, immediately "
+            "synchronize it by running:"
+        )
+
     return (
         "## Canonical glossary workflow\n\n"
         f"<!-- ai-glossary:curation {curation_metadata} -->\n\n"
@@ -102,9 +124,7 @@ def synchronization_guidance(
         "`~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is unset or "
         "empty. For this installation, "
         f"edit `{glossary_file}` to curate terms. "
-        f"This managed block in `{claude_file}` and its peer in `{agents_file}` are "
-        "generated copies; never edit either block directly. After every canonical "
-        "edit, immediately synchronize both generated copies by running:\n\n"
+        f"{peer_prose}\n\n"
         f"```sh\n{command}\n```\n\n"
     )
 
@@ -157,8 +177,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("setup", "uninstall"))
     parser.add_argument("--data-home", type=Path, default=default_data_home())
-    parser.add_argument("--claude-file", type=Path, default=default_claude_file())
-    parser.add_argument("--agents-file", type=Path, default=default_agents_file())
+    parser.add_argument("--claude-file", type=Path, default=None)
+    parser.add_argument("--agents-file", type=Path, default=None)
     return parser.parse_args()
 
 
@@ -167,9 +187,15 @@ def main() -> int:
     data_home = args.data_home.expanduser().resolve()
     glossary_file = data_home / "glossary.md"
     template = Path(__file__).resolve().parent / "templates" / "glossary.md"
-    targets = tuple(
-        path.expanduser().resolve() for path in (args.claude_file, args.agents_file)
-    )
+    claude_explicit = args.claude_file is not None
+    agents_explicit = args.agents_file is not None
+    claude_file = (
+        args.claude_file if claude_explicit else default_claude_file()
+    ).expanduser().resolve()
+    agents_file = (
+        args.agents_file if agents_explicit else default_agents_file()
+    ).expanduser().resolve()
+    targets = (claude_file, agents_file)
     try:
         changes: list[str] = []
         if args.action == "setup":
@@ -178,11 +204,25 @@ def main() -> int:
                 atomic_write(glossary_file, template.read_text(encoding="utf-8"))
                 changes.append(f"created {glossary_file}")
             glossary = glossary_file.read_text(encoding="utf-8")
-            guidance = synchronization_guidance(data_home, *targets)
-            updates = {
-                target: setup_target(read_target(target), glossary, guidance)
-                for target in targets
-            }
+            active_targets = tuple(
+                target
+                for target, is_explicit in (
+                    (claude_file, claude_explicit),
+                    (agents_file, agents_explicit),
+                )
+                if is_explicit or target.exists()
+            )
+            guidance_targets = (
+                claude_file if claude_explicit or claude_file.exists() else None,
+                agents_file if agents_explicit or agents_file.exists() else None,
+            )
+            updates = {}
+            if active_targets:
+                guidance = synchronization_guidance(data_home, *guidance_targets)
+                updates = {
+                    target: setup_target(read_target(target), glossary, guidance)
+                    for target in active_targets
+                }
             for target, updated in updates.items():
                 if write_if_changed(target, updated):
                     changes.append(f"synchronized {target}")
