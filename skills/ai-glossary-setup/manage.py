@@ -21,16 +21,6 @@ LEGACY_IMPORT = re.compile(
 )
 ENTRIES_SEPARATOR = "---"
 
-# Retired deterministic-curation install (ADR-0001, superseded by ADR-0002).
-# The old hook-based setup wrote a Claude Code SessionEnd hook entry and an
-# Opencode plugin file. These markers identify exactly those managed
-# artifacts so an upgrade or uninstall can remove them and nothing else.
-CLAUDE_HOOK_EVENT = "SessionEnd"
-CLAUDE_HOOK_MARKER = "ai-glossary-setup"
-OPENCODE_PLUGIN_NAME = "ai-glossary-curate.js"
-OPENCODE_PLUGIN_MARKER = "Managed by ai-glossary-setup"
-
-
 def default_data_home() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
     return Path(base).expanduser() / "ai-glossary" if base else Path.home() / ".config" / "ai-glossary"
@@ -44,17 +34,6 @@ def default_claude_file() -> Path:
 def default_agents_file() -> Path:
     codex_home = os.environ.get("CODEX_HOME")
     return (Path(codex_home).expanduser() if codex_home else Path.home() / ".codex") / "AGENTS.md"
-
-
-def default_claude_settings_file() -> Path:
-    config = os.environ.get("CLAUDE_CONFIG_DIR")
-    return (Path(config).expanduser() if config else Path.home() / ".claude") / "settings.json"
-
-
-def default_opencode_plugin_dir() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME")
-    config_dir = Path(base).expanduser() / "opencode" if base else Path.home() / ".config" / "opencode"
-    return config_dir / "plugin"
 
 
 def remove_managed_blocks(text: str) -> str:
@@ -204,102 +183,6 @@ def write_if_changed(path: Path, content: str) -> bool:
     return True
 
 
-def _load_json_object(path: Path) -> dict:
-    """Load a JSON object, treating a missing or empty file as empty.
-
-    A file that exists but is not a JSON object is an error: rewriting it would
-    silently discard settings we cannot understand.
-    """
-    if not path.exists():
-        return {}
-    text = path.read_text(encoding="utf-8")
-    if not text.strip():
-        return {}
-    data = json.loads(text)
-    if not isinstance(data, dict):
-        raise ValueError(f"{path} does not contain a JSON object")
-    return data
-
-
-def _write_json_object(path: Path, data: dict) -> None:
-    atomic_write(path, json.dumps(data, indent=2, sort_keys=False) + "\n")
-
-
-def remove_claude_hook(settings_file: Path) -> bool:
-    """Remove only the retired managed Claude Code SessionEnd hook entry.
-
-    The old hook-based setup tagged its handler with
-    ``"_managed_by": "ai-glossary-setup"``. Every other hook, group, and
-    settings key is preserved; a group that held only our hook is dropped, and
-    when ``SessionEnd`` or ``hooks`` becomes empty the now-empty key is removed.
-    An absent file, or absent or mis-typed ``hooks``, ``SessionEnd``, or
-    handler structure, is a clean no-op.
-    """
-    if not settings_file.exists():
-        return False
-    settings = _load_json_object(settings_file)
-    hooks = settings.get("hooks")
-    if not isinstance(hooks, dict):
-        return False
-    session_end = hooks.get(CLAUDE_HOOK_EVENT)
-    if not isinstance(session_end, list):
-        return False
-
-    changed = False
-    remaining_groups = []
-    for group in session_end:
-        if not isinstance(group, dict):
-            remaining_groups.append(group)
-            continue
-        original_hooks = group.get("hooks")
-        if not isinstance(original_hooks, list):
-            remaining_groups.append(group)
-            continue
-        remaining_hooks = [
-            hook
-            for hook in original_hooks
-            if not (
-                isinstance(hook, dict)
-                and hook.get("_managed_by") == CLAUDE_HOOK_MARKER
-            )
-        ]
-        if len(remaining_hooks) != len(original_hooks):
-            changed = True
-        # Keep a group that still has hooks of its own, and keep one that was
-        # already empty before we looked (nothing of ours was in it).
-        if remaining_hooks or not original_hooks:
-            remaining_groups.append({**group, "hooks": remaining_hooks})
-
-    if not changed:
-        return False
-
-    if remaining_groups:
-        hooks[CLAUDE_HOOK_EVENT] = remaining_groups
-    else:
-        del hooks[CLAUDE_HOOK_EVENT]
-    if not hooks:
-        del settings["hooks"]
-
-    _write_json_object(settings_file, settings)
-    return True
-
-
-def remove_opencode_plugin(plugin_dir: Path) -> bool:
-    """Remove only the retired managed Opencode curation plugin file.
-
-    A file at the reserved name that does not carry the managed marker is
-    foreign content and is left untouched; a missing directory or file is a
-    clean no-op.
-    """
-    plugin_file = plugin_dir / OPENCODE_PLUGIN_NAME
-    if not plugin_file.is_file():
-        return False
-    if OPENCODE_PLUGIN_MARKER not in plugin_file.read_text(encoding="utf-8"):
-        return False
-    plugin_file.unlink()
-    return True
-
-
 def canonical_glossary_path(glossary_file: Path) -> Path:
     """Return the file setup should write when updating the canonical glossary.
 
@@ -417,12 +300,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-home", type=Path, default=default_data_home())
     parser.add_argument("--claude-file", type=Path, default=None)
     parser.add_argument("--agents-file", type=Path, default=None)
-    parser.add_argument(
-        "--claude-settings-file", type=Path, default=default_claude_settings_file()
-    )
-    parser.add_argument(
-        "--opencode-plugin-dir", type=Path, default=default_opencode_plugin_dir()
-    )
     return parser.parse_args()
 
 
@@ -440,8 +317,6 @@ def main() -> int:
         args.agents_file if agents_explicit else default_agents_file()
     ).expanduser().resolve()
     targets = (claude_file, agents_file)
-    claude_settings_file = args.claude_settings_file.expanduser().resolve()
-    opencode_plugin_dir = args.opencode_plugin_dir.expanduser().resolve()
     try:
         changes: list[str] = []
         if args.action == "setup":
@@ -494,19 +369,6 @@ def main() -> int:
             for target, updated in updates.items():
                 if write_if_changed(target, updated):
                     changes.append(f"removed managed glossary from {target}")
-        # Retired deterministic curation (ADR-0001, superseded by ADR-0002):
-        # remove the old SessionEnd hook and Opencode plugin on both the
-        # upgrade (setup) and uninstall paths, preserving everything else.
-        if remove_claude_hook(claude_settings_file):
-            changes.append(
-                "removed retired Claude Code SessionEnd hook from "
-                f"{claude_settings_file}"
-            )
-        if remove_opencode_plugin(opencode_plugin_dir):
-            changes.append(
-                "removed retired Opencode curation plugin from "
-                f"{opencode_plugin_dir / OPENCODE_PLUGIN_NAME}"
-            )
         if changes:
             print("\n".join(changes))
         elif args.action == "setup":

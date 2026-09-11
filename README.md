@@ -80,15 +80,22 @@ lines from the global instruction files. It preserves unrelated instructions
 and leaves the data home in place: deleting your vocabulary is your call,
 never a side effect.
 
-Both setup and uninstall also clean up the retired deterministic-curation
-install shipped by older versions, so upgrading removes it. They remove the
-managed Claude Code `SessionEnd` hook entry from
-`${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` and the managed Opencode
-`ai-glossary-curate.js` plugin from
-`${XDG_CONFIG_HOME:-~/.config}/opencode/plugin/`, each identified by its own
-marker. Only those managed artifacts are removed — every other hook, plugin,
-group, and settings key is preserved — and a missing file or directory is a
-clean no-op.
+Upgrading from an older version that shipped hook-based automatic curation
+takes one manual step. Re-installing the skill does not remove the two
+artifacts that install left behind, and both keep invoking the removed
+`manage.py curate` action, so re-install the current skill (see
+[Install](#install)) and then delete those artifacts by hand:
+
+- the Claude Code `SessionEnd` hook entry in
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` whose handler carries the
+  `"_managed_by": "ai-glossary-setup"` marker;
+- the Opencode plugin `$XDG_CONFIG_HOME/opencode/plugin/ai-glossary-curate.js`
+  (falling back to `~/.config/opencode/plugin/`), whose header carries the
+  `Managed by ai-glossary-setup` marker.
+
+Remove only the marked artifacts: every other hook, plugin, group, and
+settings key is preserved. Setup and uninstall themselves never read or change
+`settings.json` or the Opencode plugin directory.
 
 ## How it works
 
