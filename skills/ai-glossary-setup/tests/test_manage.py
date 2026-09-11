@@ -333,6 +333,28 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertFalse(self.claude.exists())
         self.assertFalse(self.agents.exists())
 
+    def test_setup_refuses_symlink_through_regular_file_without_claiming_loop(self):
+        self.data_home.mkdir(parents=True)
+        plainfile = self.data_home / "plainfile"
+        plainfile.write_text("not a directory\n", encoding="utf-8")
+        link = self.data_home / "glossary.md"
+        link.symlink_to("plainfile/sub")
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        # ENOTDIR is a resolution failure, not a symlink loop.
+        self.assertNotIn("self-referential", result.stderr)
+        self.assertNotIn("looping symlink", result.stderr)
+        # The underlying cause is surfaced instead of a loop diagnosis.
+        self.assertIn("Not a directory", result.stderr)
+        self.assertTrue(link.is_symlink(), "setup must not replace the symlink")
+        self.assertFalse(link.is_file())
+        self.assertEqual(os.readlink(link), "plainfile/sub")
+        # Refusal happens before any target is written.
+        self.assertFalse(self.claude.exists())
+        self.assertFalse(self.agents.exists())
+
     def test_setup_repair_and_uninstall_preserve_mixed_line_endings(self):
         self.data_home.mkdir(parents=True)
         glossary_path = self.data_home / "glossary.md"

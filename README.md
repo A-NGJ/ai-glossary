@@ -64,8 +64,10 @@ glossary with no `---` separator untouched. If `glossary.md` is a symlink —
 for example into a dotfiles repo — setup writes through it to the linked file
 and leaves the symlink in place, so the real glossary is updated where the
 symlink points instead of being detached. A self-referential or looping symlink
-names no real target; setup refuses with a clear error and a non-zero exit
-instead of replacing the link with a regular file.
+names no real target, and so does any other symlink that cannot be resolved to
+one (for example, a link pointing through a regular file). Setup refuses each
+with an error that names the cause and a non-zero exit instead of replacing the
+link with a regular file.
 
 Asking it to uninstall removes only managed blocks and legacy glossary import
 lines from the global instruction files. It preserves unrelated instructions
