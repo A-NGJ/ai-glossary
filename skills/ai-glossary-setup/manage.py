@@ -18,6 +18,7 @@ END = "<!-- ai-glossary:managed:end -->"
 LEGACY_IMPORT = re.compile(
     r"^\s*@[^\r\n]*[\\/]ai-glossary[\\/]glossary\.md\s*$"
 )
+ENTRIES_SEPARATOR = "---"
 
 def default_data_home() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
@@ -173,6 +174,51 @@ def write_if_changed(path: Path, content: str) -> bool:
     return True
 
 
+def _normalize_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def split_glossary_header(text: str) -> Optional[tuple[str, str]]:
+    """Split a glossary into its tool-owned header region and operator body.
+
+    The header region runs from the start of the file through the first line
+    whose content is exactly ``---`` (the entries separator), inclusive. The
+    body is everything after it. Returns ``None`` when the file carries no
+    entries separator, so a file that is not a seeded glossary is never
+    rewritten.
+    """
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        if line.rstrip("\r\n") == ENTRIES_SEPARATOR:
+            end = offset + len(line)
+            return text[:end], text[end:]
+        offset += len(line)
+    return None
+
+
+def migrate_glossary_header(text: str, template: str) -> Optional[str]:
+    """Replace a stale tool-owned header region with the template's.
+
+    Returns ``None`` when there is nothing to do: the file has no entries
+    separator (so it cannot be confidently identified as a seeded glossary),
+    or its header already matches the template modulo line endings. Operator
+    entries after the separator are preserved byte-for-byte.
+    """
+    canonical = split_glossary_header(text)
+    current = split_glossary_header(template)
+    if canonical is None or current is None:
+        return None
+    canonical_header, body = canonical
+    template_header, _ = current
+    if _normalize_newlines(canonical_header) == _normalize_newlines(template_header):
+        return None
+    # Match the canonical file's own line-ending style so the migrated header
+    # does not introduce a foreign ending into an otherwise CRLF file.
+    newline = "\r\n" if "\r\n" in text else "\n"
+    migrated_header = _normalize_newlines(template_header).replace("\n", newline)
+    return migrated_header + body
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("setup", "uninstall"))
@@ -200,10 +246,18 @@ def main() -> int:
         changes: list[str] = []
         if args.action == "setup":
             data_home.mkdir(parents=True, exist_ok=True)
+            template_text = template.read_text(encoding="utf-8")
             if not glossary_file.exists():
-                atomic_write(glossary_file, template.read_text(encoding="utf-8"))
+                atomic_write(glossary_file, template_text)
                 changes.append(f"created {glossary_file}")
-            glossary = glossary_file.read_text(encoding="utf-8")
+            glossary = read_target(glossary_file)
+            migrated = migrate_glossary_header(glossary, template_text)
+            if migrated is not None:
+                atomic_write(glossary_file, migrated)
+                glossary = migrated
+                changes.append(
+                    f"migrated {glossary_file} header to current template"
+                )
             active_targets = tuple(
                 target
                 for target, is_explicit in (

@@ -35,8 +35,20 @@ python3 <skill folder>/manage.py setup
 ```
 
 The command creates missing parent directories and files for active targets. It
-seeds a missing canonical glossary from `templates/glossary.md`, but never
-replaces an existing canonical glossary. For each active global instruction
+seeds a missing canonical glossary from `templates/glossary.md`.
+
+In the canonical glossary, the **header region** — everything from the start of
+the file through the first line whose content is exactly `---` — is tool-owned
+and mirrors `templates/glossary.md`. Setup brings a stale header up to the
+current template: when that region differs, it replaces only the header region
+and prints `migrated <path> header to current template`. Everything after the
+`---` separator — every term entry and lock — is preserved byte-for-byte, and
+migration runs before the managed blocks are generated so both carry the
+migrated header in the same run. When the header already matches, setup makes
+no change. A canonical file with no `---` separator is never rewritten, so a
+hand-written glossary cannot be clobbered.
+
+For each active global instruction
 file, it removes legacy `@.../ai-glossary/glossary.md` lines and all prior
 managed blocks, preserves other content, then writes exactly one current block
 delimited by:
