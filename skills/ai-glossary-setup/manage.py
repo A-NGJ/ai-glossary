@@ -183,8 +183,27 @@ def canonical_glossary_path(glossary_file: Path) -> Path:
     through the resolved symlink target keeps the link intact and edits the file
     it points at. Non-symlink paths are returned unchanged, and a dangling
     symlink still resolves to the target the operator named.
+
+    A symlink that points at itself, or a loop of symlinks, names no real
+    target. On Python 3.14 ``Path.resolve()`` returns the link path itself
+    instead of raising, so writing "through" it would still replace the link.
+    Detect that case by resolving strictly: a missing target raises
+    ``FileNotFoundError`` (a dangling link we can still seed), while a loop
+    raises ``OSError`` on Python 3.13+ or ``RuntimeError`` on earlier
+    versions. Refuse the loop rather than detach it, so the pathological state
+    is reported instead of silently replaced.
     """
-    return glossary_file.resolve() if glossary_file.is_symlink() else glossary_file
+    if not glossary_file.is_symlink():
+        return glossary_file
+    try:
+        return glossary_file.resolve(strict=True)
+    except FileNotFoundError:
+        return glossary_file.resolve()
+    except (OSError, RuntimeError) as error:
+        raise ValueError(
+            f"{glossary_file} is a self-referential or looping symlink with "
+            "no real target; refusing to replace it with a regular file"
+        ) from error
 
 
 def _normalize_newlines(text: str) -> str:
@@ -245,9 +264,6 @@ def main() -> int:
     args = parse_args()
     data_home = args.data_home.expanduser().resolve()
     glossary_file = data_home / "glossary.md"
-    # Write through a symlinked canonical glossary (often pointing into a
-    # dotfiles repo) instead of replacing the link with a regular file.
-    glossary_write_path = canonical_glossary_path(glossary_file)
     template = Path(__file__).resolve().parent / "templates" / "glossary.md"
     claude_explicit = args.claude_file is not None
     agents_explicit = args.agents_file is not None
@@ -261,6 +277,11 @@ def main() -> int:
     try:
         changes: list[str] = []
         if args.action == "setup":
+            # Write through a symlinked canonical glossary (often pointing into
+            # a dotfiles repo) instead of replacing the link with a regular
+            # file. A self-referential or looping symlink has no real target
+            # and raises ValueError here, which the handler below reports.
+            glossary_write_path = canonical_glossary_path(glossary_file)
             data_home.mkdir(parents=True, exist_ok=True)
             template_text = template.read_text(encoding="utf-8")
             if not glossary_file.exists():

@@ -297,6 +297,42 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assert_one_complete_block(self.claude, self.template_text())
         self.assert_one_complete_block(self.agents, self.template_text())
 
+    def test_setup_refuses_self_referential_symlinked_glossary(self):
+        self.data_home.mkdir(parents=True)
+        link = self.data_home / "glossary.md"
+        link.symlink_to("glossary.md")
+        # On Python 3.14 resolve() returns the link path itself rather than
+        # raising, so this must be detected explicitly before any write.
+        self.assertTrue(link.is_symlink())
+        self.assertFalse(link.exists())
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("self-referential or looping symlink", result.stderr)
+        self.assertTrue(link.is_symlink(), "setup must not replace the symlink")
+        self.assertFalse(link.is_file())
+        self.assertEqual(os.readlink(link), "glossary.md")
+        # Refusal happens before any target is written.
+        self.assertFalse(self.claude.exists())
+        self.assertFalse(self.agents.exists())
+
+    def test_setup_refuses_mutually_looping_symlinked_glossary(self):
+        self.data_home.mkdir(parents=True)
+        first = self.data_home / "glossary.md"
+        second = self.data_home / "other.md"
+        first.symlink_to(second.name)
+        second.symlink_to(first.name)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("self-referential or looping symlink", result.stderr)
+        self.assertTrue(first.is_symlink(), "setup must not replace the symlink")
+        self.assertFalse(first.is_file())
+        self.assertFalse(self.claude.exists())
+        self.assertFalse(self.agents.exists())
+
     def test_setup_repair_and_uninstall_preserve_mixed_line_endings(self):
         self.data_home.mkdir(parents=True)
         glossary_path = self.data_home / "glossary.md"
