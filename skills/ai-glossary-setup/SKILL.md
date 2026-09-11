@@ -35,7 +35,11 @@ python3 <skill folder>/manage.py setup
 ```
 
 The command creates missing parent directories and files for active targets. It
-seeds a missing canonical glossary from `templates/glossary.md`.
+seeds a missing canonical glossary from `templates/glossary.md`. If
+`<data home>/glossary.md` is a symlink — for example into a dotfiles repo —
+setup writes through it to the linked file and leaves the symlink in place, so
+the real glossary is updated where the symlink points rather than being
+detached.
 
 In the canonical glossary, the **header region** — everything from the start of
 the file through the first line whose content is exactly `---` — is tool-owned

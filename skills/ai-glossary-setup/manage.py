@@ -174,6 +174,19 @@ def write_if_changed(path: Path, content: str) -> bool:
     return True
 
 
+def canonical_glossary_path(glossary_file: Path) -> Path:
+    """Return the file setup should write when updating the canonical glossary.
+
+    An operator may symlink ``<data home>/glossary.md`` into a dotfiles repo.
+    ``atomic_write`` replaces its target path atomically, which would swap the
+    symlink for a regular file and silently detach the real glossary. Writing
+    through the resolved symlink target keeps the link intact and edits the file
+    it points at. Non-symlink paths are returned unchanged, and a dangling
+    symlink still resolves to the target the operator named.
+    """
+    return glossary_file.resolve() if glossary_file.is_symlink() else glossary_file
+
+
 def _normalize_newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -232,6 +245,9 @@ def main() -> int:
     args = parse_args()
     data_home = args.data_home.expanduser().resolve()
     glossary_file = data_home / "glossary.md"
+    # Write through a symlinked canonical glossary (often pointing into a
+    # dotfiles repo) instead of replacing the link with a regular file.
+    glossary_write_path = canonical_glossary_path(glossary_file)
     template = Path(__file__).resolve().parent / "templates" / "glossary.md"
     claude_explicit = args.claude_file is not None
     agents_explicit = args.agents_file is not None
@@ -248,12 +264,12 @@ def main() -> int:
             data_home.mkdir(parents=True, exist_ok=True)
             template_text = template.read_text(encoding="utf-8")
             if not glossary_file.exists():
-                atomic_write(glossary_file, template_text)
+                atomic_write(glossary_write_path, template_text)
                 changes.append(f"created {glossary_file}")
             glossary = read_target(glossary_file)
             migrated = migrate_glossary_header(glossary, template_text)
             if migrated is not None:
-                atomic_write(glossary_file, migrated)
+                atomic_write(glossary_write_path, migrated)
                 glossary = migrated
                 changes.append(
                     f"migrated {glossary_file} header to current template"
