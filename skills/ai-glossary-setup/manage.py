@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import re
@@ -189,8 +190,11 @@ def canonical_glossary_path(glossary_file: Path) -> Path:
     instead of raising, so writing "through" it would still replace the link.
     Detect that case by resolving strictly: a missing target raises
     ``FileNotFoundError`` (a dangling link we can still seed), while a loop
-    raises ``OSError`` on Python 3.13+ or ``RuntimeError`` on earlier
-    versions. Refuse the loop rather than detach it, so the pathological state
+    raises ``OSError`` with ``ELOOP`` on Python 3.13+ or ``RuntimeError`` on
+    earlier versions. Any other resolution failure -- for example ``ENOTDIR``
+    when the link points through a regular file -- is a different error and is
+    reported with its underlying cause rather than mislabelled as a loop.
+    Refuse every failure rather than detach the link, so the pathological state
     is reported instead of silently replaced.
     """
     if not glossary_file.is_symlink():
@@ -200,9 +204,21 @@ def canonical_glossary_path(glossary_file: Path) -> Path:
     except FileNotFoundError:
         return glossary_file.resolve()
     except (OSError, RuntimeError) as error:
+        # Only ELOOP (or the pre-3.13 RuntimeError signalling it) means the
+        # link loops. Every other OSError -- ENOTDIR, EACCES, ... -- has a
+        # different cause and must not be reported as a symlink loop.
+        is_loop = isinstance(error, RuntimeError) or getattr(
+            error, "errno", None
+        ) == errno.ELOOP
+        if is_loop:
+            raise ValueError(
+                f"{glossary_file} is a self-referential or looping symlink "
+                "with no real target; refusing to replace it with a regular "
+                "file"
+            ) from error
         raise ValueError(
-            f"{glossary_file} is a self-referential or looping symlink with "
-            "no real target; refusing to replace it with a regular file"
+            f"{glossary_file} cannot be resolved to a real target: {error}; "
+            "refusing to replace it with a regular file"
         ) from error
 
 
@@ -279,8 +295,9 @@ def main() -> int:
         if args.action == "setup":
             # Write through a symlinked canonical glossary (often pointing into
             # a dotfiles repo) instead of replacing the link with a regular
-            # file. A self-referential or looping symlink has no real target
-            # and raises ValueError here, which the handler below reports.
+            # file. A symlink that cannot be resolved to a real target -- a
+            # loop or any other resolution failure -- raises ValueError here,
+            # which the handler below reports.
             glossary_write_path = canonical_glossary_path(glossary_file)
             data_home.mkdir(parents=True, exist_ok=True)
             template_text = template.read_text(encoding="utf-8")
