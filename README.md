@@ -80,6 +80,23 @@ lines from the global instruction files. It preserves unrelated instructions
 and leaves the data home in place: deleting your vocabulary is your call,
 never a side effect.
 
+Upgrading from an older version that shipped hook-based automatic curation
+takes one manual step. Re-installing the skill does not remove the two
+artifacts that install left behind, and both keep invoking the removed
+`manage.py curate` action, so re-install the current skill (see
+[Install](#install)) and then delete those artifacts by hand:
+
+- the Claude Code `SessionEnd` hook entry in
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` whose handler carries the
+  `"_managed_by": "ai-glossary-setup"` marker;
+- the Opencode plugin `$XDG_CONFIG_HOME/opencode/plugin/ai-glossary-curate.js`
+  (falling back to `~/.config/opencode/plugin/`), whose header carries the
+  `Managed by ai-glossary-setup` marker.
+
+Remove only the marked artifacts: every other hook, plugin, group, and
+settings key is preserved. Setup and uninstall themselves never read or change
+`settings.json` or the Opencode plugin directory.
+
 ## How it works
 
 - **Data home**: `$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to
