@@ -67,7 +67,8 @@ An issue reaches Done only when:
 <!-- OPERATOR-CONFIGURABLE: checks and evidence -->
 
 The local-project completion boundary is:
-- observable revision-linked verification evidence is recorded (e.g. Markdown validation, skill structure and path verification; no automated test/lint script is currently configured);
+- observable revision-linked verification evidence is recorded (e.g. Markdown validation, skill structure and path verification);
+- the Python test suite passes (`python3 -m pytest skills/ai-glossary-setup/tests/test_manage.py`) and lint passes (`ruff check .`);
 - changed observable behavior has executable evidence where applicable;
 - current required consumer documentation is updated;
 - a fresh independent review returns Accepted;

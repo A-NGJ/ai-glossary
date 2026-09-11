@@ -79,7 +79,7 @@ parent: null | <issue-number>
 depends_on: []
 active_specialist: null
 input_revisions: []
-required_checks: ["observable-inspection"]
+required_checks: ["python3 -m pytest skills/ai-glossary-setup/tests/test_manage.py", "ruff check ."]
 created_at: YYYY-MM-DDTHH:MM:SSZ
 updated_at: YYYY-MM-DDTHH:MM:SSZ
 -->
