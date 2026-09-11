@@ -60,7 +60,10 @@ template, so header wording changes reach existing installs without
 reinstalling. The header region is everything from the top of the file through
 the `---` entries separator; setup replaces it only when it differs, leaves
 every term entry and lock below the separator byte-for-byte, and leaves a
-glossary with no `---` separator untouched.
+glossary with no `---` separator untouched. If `glossary.md` is a symlink —
+for example into a dotfiles repo — setup writes through it to the linked file
+and leaves the symlink in place, so the real glossary is updated where the
+symlink points instead of being detached.
 
 Asking it to uninstall removes only managed blocks and legacy glossary import
 lines from the global instruction files. It preserves unrelated instructions

@@ -246,6 +246,57 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(again.stdout.strip(), "setup already complete")
         self.assertEqual(glossary_path.read_bytes(), expected.encode("utf-8"))
 
+    def test_setup_migrates_symlinked_glossary_through_its_target(self):
+        target = self.root / "dotfiles" / "glossary.md"
+        target.parent.mkdir(parents=True)
+        target.write_text(STALE_HEADER + OPERATOR_ENTRIES, encoding="utf-8")
+        self.data_home.mkdir(parents=True)
+        link = self.data_home / "glossary.md"
+        link.symlink_to(os.path.relpath(target, self.data_home))
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(link.is_symlink(), "setup must not replace the symlink")
+        expected = self.template_text() + OPERATOR_ENTRIES
+        self.assertEqual(target.read_text(encoding="utf-8"), expected)
+        # Every term, lock, anti-term, and alias survives byte-for-byte.
+        self.assertTrue(target.read_text(encoding="utf-8").endswith(OPERATOR_ENTRIES))
+        self.assertIn(
+            f"migrated {self.data_home.resolve() / 'glossary.md'} "
+            "header to current template",
+            result.stdout,
+        )
+        self.assert_one_complete_block(self.claude, expected)
+        self.assert_one_complete_block(self.agents, expected)
+
+        again = self.run_tool("setup")
+
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(again.stdout.strip(), "setup already complete")
+        self.assertEqual(target.read_bytes(), expected.encode("utf-8"))
+
+    def test_setup_seeds_dangling_symlinked_glossary_through_its_target(self):
+        target = self.root / "dotfiles" / "glossary.md"
+        target.parent.mkdir(parents=True)
+        self.data_home.mkdir(parents=True)
+        link = self.data_home / "glossary.md"
+        link.symlink_to(os.path.relpath(target, self.data_home))
+        # Path.exists() is False for a dangling symlink; the link is still real.
+        self.assertFalse(link.exists())
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(link.is_symlink(), "setup must not replace the symlink")
+        self.assertEqual(target.read_text(encoding="utf-8"), self.template_text())
+        self.assertIn(
+            f"created {self.data_home.resolve() / 'glossary.md'}", result.stdout
+        )
+        self.assert_one_complete_block(self.claude, self.template_text())
+        self.assert_one_complete_block(self.agents, self.template_text())
+
     def test_setup_repair_and_uninstall_preserve_mixed_line_endings(self):
         self.data_home.mkdir(parents=True)
         glossary_path = self.data_home / "glossary.md"
