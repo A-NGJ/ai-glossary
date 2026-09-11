@@ -81,6 +81,15 @@ to synchronize that installation. A rerun therefore synchronizes canonical
 edits and does not duplicate blocks. Report each path printed by the command;
 `setup already complete` means no bytes needed changing.
 
+Setup also cleans up the retired deterministic-curation install left by older
+versions, so upgrading removes it: the managed Claude Code `SessionEnd` hook
+entry in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`, identified by its
+`"_managed_by": "ai-glossary-setup"` marker, and the managed Opencode plugin
+file `ai-glossary-curate.js` in `${XDG_CONFIG_HOME:-~/.config}/opencode/plugin/`,
+identified by its `Managed by ai-glossary-setup` marker. Only those managed
+artifacts are removed — every other hook, plugin, group, and settings key is
+preserved — and a missing file or directory is a clean no-op.
+
 Done when the command exits zero, the canonical glossary exists, and each
 active global file contains exactly one managed block with its complete
 content.
@@ -94,8 +103,11 @@ python3 <skill folder>/manage.py uninstall
 ```
 
 The command removes every managed block and legacy glossary import line from
-both global instruction files while preserving all other content. It leaves
-the data home and canonical glossary in place and prints that retained path.
+both global instruction files while preserving all other content. It also
+removes the retired managed `SessionEnd` hook entry and Opencode plugin file
+described above, preserving every other hook, plugin, group, and setting. It
+leaves the data home and canonical glossary in place and prints that retained
+path.
 
 Done when the command exits zero and its retained glossary path has been
 reported to the operator.
@@ -109,10 +121,15 @@ path without touching live global files:
 python3 <skill folder>/manage.py setup \
   --data-home /absolute/data-home \
   --claude-file /absolute/CLAUDE.md \
-  --agents-file /absolute/AGENTS.md
+  --agents-file /absolute/AGENTS.md \
+  --claude-settings-file /absolute/settings.json \
+  --opencode-plugin-dir /absolute/opencode/plugin
 ```
 
 Use the same options with `uninstall`. Relative override paths are accepted but
 absolute paths make the changed targets unambiguous. An explicitly passed
 target is always written, even when it does not yet exist, so this is the way to
 install the glossary into a harness that is not yet on disk.
+`--claude-settings-file` and `--opencode-plugin-dir` redirect the retired
+`SessionEnd` hook and Opencode plugin cleanup; passing them keeps a sandbox or
+test from reading or changing live global files.

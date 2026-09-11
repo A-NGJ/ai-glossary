@@ -54,6 +54,10 @@ class ManageGlossaryTest(unittest.TestCase):
         self.data_home = self.root / "config" / "ai-glossary"
         self.claude = self.root / "claude" / "CLAUDE.md"
         self.agents = self.root / "codex" / "AGENTS.md"
+        # Redirect the retired-artifact cleanup targets away from live global
+        # files. They are absent by default, so those paths are clean no-ops.
+        self.claude_settings = self.root / "claude" / "settings.json"
+        self.opencode_plugin_dir = self.root / "opencode" / "plugin"
 
     def tearDown(self):
         self.temp.cleanup()
@@ -70,6 +74,10 @@ class ManageGlossaryTest(unittest.TestCase):
                 str(self.claude),
                 "--agents-file",
                 str(self.agents),
+                "--claude-settings-file",
+                str(self.claude_settings),
+                "--opencode-plugin-dir",
+                str(self.opencode_plugin_dir),
             ],
             check=False,
             capture_output=True,
@@ -509,6 +517,14 @@ class ManageGlossaryTest(unittest.TestCase):
             self.assertEqual(
                 manage.default_agents_file(), self.root / "custom-codex" / "AGENTS.md"
             )
+            self.assertEqual(
+                manage.default_claude_settings_file(),
+                self.root / "custom-claude" / "settings.json",
+            )
+            self.assertEqual(
+                manage.default_opencode_plugin_dir(),
+                self.root / "xdg" / "opencode" / "plugin",
+            )
 
     def test_empty_xdg_and_harness_environment_use_home_fallbacks(self):
         with mock.patch.dict(
@@ -531,6 +547,14 @@ class ManageGlossaryTest(unittest.TestCase):
             self.assertEqual(
                 manage.default_agents_file(), home / ".codex" / "AGENTS.md"
             )
+            self.assertEqual(
+                manage.default_claude_settings_file(),
+                home / ".claude" / "settings.json",
+            )
+            self.assertEqual(
+                manage.default_opencode_plugin_dir(),
+                home / ".config" / "opencode" / "plugin",
+            )
 
     def test_explicit_data_home_curation_pair_edits_and_syncs_same_glossary(self):
         default_glossary = self.root / "xdg" / "ai-glossary" / "glossary.md"
@@ -552,7 +576,19 @@ class ManageGlossaryTest(unittest.TestCase):
         )
         approved = "# Explicit override\n\n- **paired term** — approved meaning.\n"
         canonical.write_text(approved, encoding="utf-8")
-        sync = subprocess.run(command, check=False, capture_output=True, text=True)
+        # The embedded sync command carries no retired-artifact overrides, so
+        # point the environment at this test's paths to keep it off live files.
+        sync = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "CLAUDE_CONFIG_DIR": str(self.root / "claude"),
+                "XDG_CONFIG_HOME": str(self.root / "xdg"),
+            },
+        )
 
         self.assertEqual(sync.returncode, 0, sync.stderr)
         self.assertEqual(default_glossary.read_text(encoding="utf-8"), "# Wrong default\n")
@@ -601,6 +637,245 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertIn("without a matching end marker", result.stderr)
 
 
+class RetiredCurationArtifactsTest(unittest.TestCase):
+    """Issue #38: setup (the upgrade path) and uninstall remove exactly the two
+    artifacts the retired hook-based install wrote — the Claude Code SessionEnd
+    hook entry and the Opencode curation plugin — preserving every other hook,
+    plugin, and setting. Neither artifact exists in the current environment, so
+    both are fabricated here."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.data_home = self.root / "config" / "ai-glossary"
+        self.claude = self.root / "claude" / "CLAUDE.md"
+        self.agents = self.root / "codex" / "AGENTS.md"
+        self.claude_settings = self.root / "claude" / "settings.json"
+        self.opencode_plugin_dir = self.root / "opencode" / "plugin"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def run_tool(self, action: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                action,
+                "--data-home",
+                str(self.data_home),
+                "--claude-file",
+                str(self.claude),
+                "--agents-file",
+                str(self.agents),
+                "--claude-settings-file",
+                str(self.claude_settings),
+                "--opencode-plugin-dir",
+                str(self.opencode_plugin_dir),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    @staticmethod
+    def managed_hook() -> dict:
+        return {
+            "type": "command",
+            "command": "python3 manage.py curate --source claude",
+            "_managed_by": manage.CLAUDE_HOOK_MARKER,
+        }
+
+    def write_settings(self, data: dict) -> None:
+        self.claude_settings.parent.mkdir(parents=True, exist_ok=True)
+        self.claude_settings.write_text(
+            json.dumps(data, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def read_settings(self) -> dict:
+        return json.loads(self.claude_settings.read_text(encoding="utf-8"))
+
+    def write_plugin(self, name: str, text: str) -> Path:
+        self.opencode_plugin_dir.mkdir(parents=True, exist_ok=True)
+        path = self.opencode_plugin_dir / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    # -- Claude Code SessionEnd hook -------------------------------------
+
+    def test_uninstall_removes_only_managed_hook_and_preserves_settings(self):
+        self.write_settings(
+            {
+                "model": "claude-opus-4-6",
+                "hooks": {
+                    "PostToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [{"type": "command", "command": "echo hi"}],
+                        }
+                    ],
+                    "SessionEnd": [
+                        {
+                            "hooks": [
+                                {"type": "command", "command": "echo other"},
+                                self.managed_hook(),
+                            ]
+                        },
+                        {"hooks": [{"type": "command", "command": "echo keep"}]},
+                    ],
+                },
+            }
+        )
+
+        result = self.run_tool("uninstall")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        settings = self.read_settings()
+        self.assertEqual(settings["model"], "claude-opus-4-6")
+        self.assertEqual(
+            settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"], "echo hi"
+        )
+        commands = [
+            hook["command"]
+            for group in settings["hooks"]["SessionEnd"]
+            for hook in group["hooks"]
+        ]
+        self.assertEqual(commands, ["echo other", "echo keep"])
+        self.assertIn(
+            "removed retired Claude Code SessionEnd hook from "
+            f"{self.claude_settings.resolve()}",
+            result.stdout,
+        )
+
+    def test_setup_removes_managed_hook_on_upgrade(self):
+        self.write_settings(
+            {"hooks": {"SessionEnd": [{"hooks": [self.managed_hook()]}]}}
+        )
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # The only SessionEnd group held only our hook, so both it and the now
+        # empty hooks object are dropped.
+        self.assertEqual(self.read_settings(), {})
+        self.assertIn("removed retired Claude Code SessionEnd hook", result.stdout)
+
+    def test_hook_cleanup_is_idempotent(self):
+        self.write_settings(
+            {"hooks": {"SessionEnd": [{"hooks": [self.managed_hook()]}]}}
+        )
+        self.assertEqual(self.run_tool("setup").returncode, 0)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "setup already complete")
+
+    def test_absent_claude_settings_is_a_clean_noop(self):
+        for action in ("setup", "uninstall"):
+            with self.subTest(action=action):
+                result = self.run_tool(action)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(self.claude_settings.exists())
+
+    def test_unmanaged_session_end_groups_are_preserved(self):
+        self.write_settings(
+            {
+                "hooks": {
+                    "SessionEnd": [
+                        {"hooks": [{"type": "command", "command": "echo keep"}]}
+                    ]
+                }
+            }
+        )
+        before = self.claude_settings.read_bytes()
+
+        result = self.run_tool("uninstall")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.claude_settings.read_bytes(), before)
+
+    def test_mis_typed_hooks_key_is_a_clean_noop(self):
+        self.write_settings({"hooks": "not-a-dict"})
+        before = self.claude_settings.read_bytes()
+
+        result = self.run_tool("uninstall")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.claude_settings.read_bytes(), before)
+
+    def test_malformed_settings_file_fails_without_rewriting(self):
+        self.claude_settings.parent.mkdir(parents=True, exist_ok=True)
+        original = "{ not json"
+        self.claude_settings.write_text(original, encoding="utf-8")
+
+        result = self.run_tool("uninstall")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ai-glossary setup failed", result.stderr)
+        self.assertEqual(self.claude_settings.read_text(encoding="utf-8"), original)
+
+    # -- Opencode plugin -------------------------------------------------
+
+    def test_uninstall_removes_only_managed_plugin_and_preserves_others(self):
+        plugin = self.write_plugin(
+            manage.OPENCODE_PLUGIN_NAME,
+            f"// {manage.OPENCODE_PLUGIN_MARKER}\n// retired plugin\n",
+        )
+        other = self.write_plugin("other-plugin.js", "// unrelated\n")
+
+        result = self.run_tool("uninstall")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(plugin.exists())
+        self.assertEqual(other.read_text(encoding="utf-8"), "// unrelated\n")
+        self.assertIn(
+            "removed retired Opencode curation plugin from "
+            f"{self.opencode_plugin_dir.resolve() / manage.OPENCODE_PLUGIN_NAME}",
+            result.stdout,
+        )
+
+    def test_setup_removes_managed_plugin_on_upgrade(self):
+        plugin = self.write_plugin(
+            manage.OPENCODE_PLUGIN_NAME,
+            f"// {manage.OPENCODE_PLUGIN_MARKER}\n// retired plugin\n",
+        )
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(plugin.exists())
+        self.assertIn("removed retired Opencode curation plugin", result.stdout)
+
+    def test_plugin_cleanup_is_idempotent(self):
+        self.write_plugin(
+            manage.OPENCODE_PLUGIN_NAME,
+            f"// {manage.OPENCODE_PLUGIN_MARKER}\n// retired plugin\n",
+        )
+        self.assertEqual(self.run_tool("setup").returncode, 0)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "setup already complete")
+
+    def test_foreign_file_at_reserved_plugin_name_is_preserved(self):
+        foreign = self.write_plugin(manage.OPENCODE_PLUGIN_NAME, "// not ours\n")
+
+        for action in ("setup", "uninstall"):
+            with self.subTest(action=action):
+                result = self.run_tool(action)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(foreign.read_text(encoding="utf-8"), "// not ours\n")
+
+    def test_absent_plugin_dir_is_a_clean_noop(self):
+        for action in ("setup", "uninstall"):
+            with self.subTest(action=action):
+                result = self.run_tool(action)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(self.opencode_plugin_dir.exists())
+
+
 class ManageMissingDefaultTargetsTest(unittest.TestCase):
     """A default target (``--claude-file``/``--agents-file`` left unspecified)
     that doesn't already exist on disk names a harness that isn't installed;
@@ -614,6 +889,9 @@ class ManageMissingDefaultTargetsTest(unittest.TestCase):
         self.claude = self.root / "claude" / "CLAUDE.md"
         self.codex_home = self.root / "codex-home"
         self.codex_home.mkdir(parents=True)
+        # Keep the retired-artifact cleanup off live global files.
+        self.claude_settings = self.root / "claude-settings" / "settings.json"
+        self.opencode_plugin_dir = self.root / "opencode" / "plugin"
 
     def tearDown(self):
         self.temp.cleanup()
@@ -631,6 +909,10 @@ class ManageMissingDefaultTargetsTest(unittest.TestCase):
                 str(self.data_home),
                 "--claude-file",
                 str(self.claude),
+                "--claude-settings-file",
+                str(self.claude_settings),
+                "--opencode-plugin-dir",
+                str(self.opencode_plugin_dir),
             ],
             check=False,
             capture_output=True,
@@ -661,6 +943,10 @@ class ManageMissingDefaultTargetsTest(unittest.TestCase):
                 str(self.claude),
                 "--agents-file",
                 str(agents),
+                "--claude-settings-file",
+                str(self.claude_settings),
+                "--opencode-plugin-dir",
+                str(self.opencode_plugin_dir),
             ],
             check=False,
             capture_output=True,
@@ -687,6 +973,10 @@ class ManageMissingDefaultTargetsTest(unittest.TestCase):
                 "setup",
                 "--data-home",
                 str(self.data_home),
+                "--claude-settings-file",
+                str(self.claude_settings),
+                "--opencode-plugin-dir",
+                str(self.opencode_plugin_dir),
             ],
             check=False,
             capture_output=True,

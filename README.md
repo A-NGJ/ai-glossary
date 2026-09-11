@@ -80,6 +80,16 @@ lines from the global instruction files. It preserves unrelated instructions
 and leaves the data home in place: deleting your vocabulary is your call,
 never a side effect.
 
+Both setup and uninstall also clean up the retired deterministic-curation
+install shipped by older versions, so upgrading removes it. They remove the
+managed Claude Code `SessionEnd` hook entry from
+`${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` and the managed Opencode
+`ai-glossary-curate.js` plugin from
+`${XDG_CONFIG_HOME:-~/.config}/opencode/plugin/`, each identified by its own
+marker. Only those managed artifacts are removed — every other hook, plugin,
+group, and settings key is preserved — and a missing file or directory is a
+clean no-op.
+
 ## How it works
 
 - **Data home**: `$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to
