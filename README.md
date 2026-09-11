@@ -52,8 +52,11 @@ ln -s "$(pwd)/ai-glossary/skills/ai-glossary-setup" ~/.claude/skills/ai-glossary
 
 Re-running the setup skill is idempotent: it recreates missing files and
 replaces each managed block with the canonical glossary's current complete
-content. This propagates glossary edits without duplicating blocks. Setup also
-removes legacy glossary `@`-import lines.
+content. The embedded glossary keeps the canonical file's dominant line-ending
+style — lone CR for a classic-Mac CR-only file — so regenerating a block never
+appends a foreign LF or CRLF before the end marker; the markers themselves stay
+LF-delimited. This propagates glossary edits without duplicating blocks. Setup
+also removes legacy glossary `@`-import lines.
 
 Setup also reconciles the canonical file's tool-owned header with the bundled
 template, so header wording changes reach existing installs without

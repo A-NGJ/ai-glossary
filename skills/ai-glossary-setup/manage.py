@@ -134,7 +134,15 @@ def synchronization_guidance(
 def managed_block(glossary: str, guidance: str = "") -> str:
     if START in glossary or END in glossary:
         raise ValueError("glossary contains reserved managed-block markers")
-    content = glossary if glossary.endswith("\n") else glossary + "\n"
+    # Terminate the embedded glossary with its own dominant line ending so the
+    # end marker starts on a new line without splicing a foreign ending onto
+    # the content. LF-only and CRLF-only glossaries already end in a line
+    # ending and are unchanged; a classic-Mac CR-only glossary ends in a lone
+    # CR and must not gain an LF (which would form a CRLF tail). Only a
+    # glossary with no trailing ending gets one appended.
+    content = glossary
+    if not content.endswith(("\n", "\r")):
+        content += _dominant_newline(content)
     return f"{START}\n{guidance}{content}{END}\n"
 
 

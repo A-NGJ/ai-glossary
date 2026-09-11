@@ -69,6 +69,12 @@ delimited by:
 <!-- ai-glossary:managed:end -->
 ```
 
+The block markers themselves stay LF-delimited. The embedded glossary keeps
+the canonical file's dominant line-ending style — CRLF for a CRLF file, lone CR
+for a classic-Mac CR-only file — so generating a block never appends a foreign
+ending before the end marker. A glossary with no trailing line ending is still
+separated from the end marker by one in its own dominant style.
+
 Each generated block also identifies the canonical file, forbids direct block
 edits, and embeds the exact command and resolved canonical/target paths needed
 to synchronize that installation. A rerun therefore synchronizes canonical

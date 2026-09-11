@@ -267,6 +267,50 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(again.stdout.strip(), "setup already complete")
         self.assertEqual(glossary_path.read_bytes(), expected_bytes)
 
+    def test_managed_block_reuses_each_glossary_line_ending(self):
+        guidance = "curation guidance\n"
+        cases = {
+            "lf-terminated": ("# Glossary\n", "# Glossary\n"),
+            "crlf-terminated": ("# Glossary\r\n", "# Glossary\r\n"),
+            "cr-terminated": ("# Glossary\r", "# Glossary\r"),
+            "unterminated-no-newline": ("# Glossary", "# Glossary\n"),
+            "lf-unterminated": ("# One\nTwo", "# One\nTwo\n"),
+            "crlf-unterminated": ("# One\r\nTwo", "# One\r\nTwo\r\n"),
+            "cr-unterminated": ("# One\rTwo", "# One\rTwo\r"),
+        }
+        for name, (glossary, content) in cases.items():
+            with self.subTest(name=name):
+                self.assertEqual(
+                    manage.managed_block(glossary, guidance),
+                    f"{manage.START}\n{guidance}{content}{manage.END}\n",
+                )
+
+    def test_setup_cr_only_glossary_block_has_no_foreign_lf_tail(self):
+        glossary = "# Mine\r\r- **term** — meaning.\r"
+        glossary_path = self.write_glossary(glossary)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(glossary_path.read_bytes(), glossary.encode("utf-8"))
+        expected_block = manage.managed_block(glossary, self.expected_guidance())
+        for target in (self.claude, self.agents):
+            generated = target.read_bytes()
+            self.assertEqual(generated, expected_block.encode("utf-8"))
+            # The embedded glossary keeps its lone-CR ending; the generator
+            # must not splice an LF or CRLF before the end marker.
+            self.assertIn(
+                ("meaning.\r" + manage.END + "\n").encode("utf-8"), generated
+            )
+            self.assertNotIn(b"\r\n", generated)
+
+        again = self.run_tool("setup")
+
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(again.stdout.strip(), "setup already complete")
+        for target in (self.claude, self.agents):
+            self.assertEqual(target.read_bytes(), expected_block.encode("utf-8"))
+
     def test_setup_migrates_symlinked_glossary_through_its_target(self):
         target = self.root / "dotfiles" / "glossary.md"
         target.parent.mkdir(parents=True)
