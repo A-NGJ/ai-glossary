@@ -51,9 +51,12 @@ current template: when that region differs, it replaces only the header region
 and prints `migrated <path> header to current template`. Everything after the
 `---` separator — every term entry and lock — is preserved byte-for-byte, and
 migration runs before the managed blocks are generated so both carry the
-migrated header in the same run. When the header already matches, setup makes
-no change. A canonical file with no `---` separator is never rewritten, so a
-hand-written glossary cannot be clobbered.
+migrated header in the same run. The migrated header reuses the canonical
+file's dominant line-ending style — CRLF for a CRLF file, lone CR for a
+classic-Mac CR-only file — so migration never splices a foreign ending onto the
+body. When the header already matches, setup makes no change. A canonical file
+with no `---` separator is never rewritten, so a hand-written glossary cannot
+be clobbered.
 
 For each active global instruction
 file, it removes legacy `@.../ai-glossary/glossary.md` lines and all prior
