@@ -226,6 +226,23 @@ def _normalize_newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _dominant_newline(text: str) -> str:
+    """Return the line ending that terminates most lines in ``text``.
+
+    A file with a single ending style always yields that style, so LF-only and
+    CRLF-only glossaries keep their existing behavior. Evenly mixed files keep
+    the earlier CRLF-first preference, then lone CR, then LF.
+    """
+    crlf = text.count("\r\n")
+    lone_cr = text.count("\r") - crlf
+    lone_lf = text.count("\n") - crlf
+    if crlf > 0 and crlf >= lone_cr and crlf >= lone_lf:
+        return "\r\n"
+    if lone_cr > 0 and lone_cr >= lone_lf:
+        return "\r"
+    return "\n"
+
+
 def split_glossary_header(text: str) -> Optional[tuple[str, str]]:
     """Split a glossary into its tool-owned header region and operator body.
 
@@ -260,9 +277,11 @@ def migrate_glossary_header(text: str, template: str) -> Optional[str]:
     template_header, _ = current
     if _normalize_newlines(canonical_header) == _normalize_newlines(template_header):
         return None
-    # Match the canonical file's own line-ending style so the migrated header
-    # does not introduce a foreign ending into an otherwise CRLF file.
-    newline = "\r\n" if "\r\n" in text else "\n"
+    # Match the canonical file's own dominant line-ending style so the
+    # migrated header does not introduce a foreign ending. A CR-only
+    # (classic-Mac) glossary therefore gets a CR-only header, not an LF one
+    # spliced onto its CR body.
+    newline = _dominant_newline(text)
     migrated_header = _normalize_newlines(template_header).replace("\n", newline)
     return migrated_header + body
 

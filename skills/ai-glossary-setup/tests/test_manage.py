@@ -246,6 +246,27 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(again.stdout.strip(), "setup already complete")
         self.assertEqual(glossary_path.read_bytes(), expected.encode("utf-8"))
 
+    def test_setup_migration_preserves_cr_only_line_endings(self):
+        entries = "- **term** — meaning.\r"
+        stale = "# Personal Glossary\r\rOld header.\r\r---\r" + entries
+        glossary_path = self.write_glossary(stale)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = self.template_text().replace("\n", "\r") + entries
+        expected_bytes = expected.encode("utf-8")
+        self.assertEqual(glossary_path.read_bytes(), expected_bytes)
+        # A classic-Mac CR-only file stays CR-only: the migrated header must
+        # reuse the body's lone-CR endings instead of splicing in LF.
+        self.assertNotIn(b"\n", expected_bytes)
+
+        again = self.run_tool("setup")
+
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(again.stdout.strip(), "setup already complete")
+        self.assertEqual(glossary_path.read_bytes(), expected_bytes)
+
     def test_setup_migrates_symlinked_glossary_through_its_target(self):
         target = self.root / "dotfiles" / "glossary.md"
         target.parent.mkdir(parents=True)

@@ -60,7 +60,10 @@ template, so header wording changes reach existing installs without
 reinstalling. The header region is everything from the top of the file through
 the `---` entries separator; setup replaces it only when it differs, leaves
 every term entry and lock below the separator byte-for-byte, and leaves a
-glossary with no `---` separator untouched. If `glossary.md` is a symlink —
+glossary with no `---` separator untouched. The replacement header reuses the
+canonical file's dominant line-ending style — CRLF, or lone CR for a
+classic-Mac CR-only file — so migration does not mix endings. If `glossary.md`
+is a symlink —
 for example into a dotfiles repo — setup writes through it to the linked file
 and leaves the symlink in place, so the real glossary is updated where the
 symlink points instead of being detached. A self-referential or looping symlink
