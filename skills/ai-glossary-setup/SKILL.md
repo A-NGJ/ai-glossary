@@ -81,22 +81,6 @@ to synchronize that installation. A rerun therefore synchronizes canonical
 edits and does not duplicate blocks. Report each path printed by the command;
 `setup already complete` means no bytes needed changing.
 
-Older versions installed hook-based automatic curation. Re-installing the
-skill does not remove that install, and both artifacts keep invoking the
-removed `manage.py curate` action, so upgrading requires one manual step.
-After re-installing the current skill, delete by hand:
-
-- the Claude Code `SessionEnd` hook entry in
-  `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`, identified by its
-  `"_managed_by": "ai-glossary-setup"` marker;
-- the Opencode plugin file `ai-glossary-curate.js` in
-  `${XDG_CONFIG_HOME:-~/.config}/opencode/plugin/`, identified by its
-  `Managed by ai-glossary-setup` marker.
-
-Remove only the marked artifacts: every other hook, plugin, group, and
-settings key is preserved. Setup and uninstall themselves never read or change
-`settings.json` or the Opencode plugin directory.
-
 Done when the command exits zero, the canonical glossary exists, and each
 active global file contains exactly one managed block with its complete
 content.
