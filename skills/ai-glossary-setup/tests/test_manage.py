@@ -14,10 +14,37 @@ from unittest import mock
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = SKILL_DIR / "manage.py"
+TEMPLATE = SKILL_DIR / "templates" / "glossary.md"
 SPEC = importlib.util.spec_from_file_location("ai_glossary_manage", SCRIPT)
 manage = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(manage)
+
+# The pre-0f171b9 Curation paragraph, retained as the known stale-header drift.
+CURRENT_CURATION = (
+    "Curation: capture only portable language whose meaning survives moving to\n"
+    "another repo — project terms belong in that repo's CONTEXT.md. Mention every\n"
+    "change in passing. Ask before deleting an entry. An entry marked `locked` (or\n"
+    "a leading 🔒) keeps its wording unless the operator consents to change it.\n"
+)
+STALE_CURATION = (
+    "Curation: you maintain this file. Add explicit terminology corrections\n"
+    "immediately. Add a distinctive coined term after the operator uses it\n"
+    "repeatedly; refine a meaning when usage drifts. Capture only portable language\n"
+    "whose meaning survives moving to another repo — project terms belong in that\n"
+    "repo's CONTEXT.md. Mention every change in passing. Ask before deleting an\n"
+    "entry. An entry marked `locked` (or a leading 🔒) keeps its wording unless the\n"
+    "operator consents to change it.\n"
+)
+STALE_HEADER = TEMPLATE.read_text(encoding="utf-8").replace(
+    CURRENT_CURATION, STALE_CURATION, 1
+)
+
+OPERATOR_ENTRIES = (
+    "- **alpha** — first meaning. *(locked)*\n"
+    "- **beta** — second meaning. *(not: gamma; aka: b)*\n"
+    "- **🔒delta** — locked delta meaning.\n"
+)
 
 
 class ManageGlossaryTest(unittest.TestCase):
@@ -61,6 +88,15 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertIn(
             manage.managed_block(glossary, self.expected_guidance()), text
         )
+
+    def template_text(self) -> str:
+        return TEMPLATE.read_text(encoding="utf-8")
+
+    def write_glossary(self, content: str) -> Path:
+        self.data_home.mkdir(parents=True, exist_ok=True)
+        path = self.data_home / "glossary.md"
+        path.write_bytes(content.encode("utf-8"))
+        return path
 
     def test_fresh_setup_creates_data_and_both_global_files(self):
         result = self.run_tool("setup")
@@ -125,6 +161,90 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.claude.read_bytes(), self.agents.read_bytes()), first)
         self.assertEqual(result.stdout.strip(), "setup already complete")
+
+    def test_setup_migrates_stale_header_and_preserves_entries_and_locks(self):
+        glossary_path = self.write_glossary(STALE_HEADER + OPERATOR_ENTRIES)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = self.template_text() + OPERATOR_ENTRIES
+        migrated = glossary_path.read_text(encoding="utf-8")
+        self.assertEqual(migrated, expected)
+        self.assertIn(
+            f"migrated {glossary_path.resolve()} header to current template",
+            result.stdout,
+        )
+        self.assertNotIn("Add explicit terminology corrections", migrated)
+        self.assertIn("Curation: capture only portable language", migrated)
+        self.assert_one_complete_block(self.claude, expected)
+        self.assert_one_complete_block(self.agents, expected)
+        # Every term, lock, anti-term, and alias survives byte-for-byte.
+        self.assertTrue(migrated.endswith(OPERATOR_ENTRIES))
+        self.assertIn(OPERATOR_ENTRIES, self.claude.read_text(encoding="utf-8"))
+        self.assertIn(OPERATOR_ENTRIES, self.agents.read_text(encoding="utf-8"))
+
+    def test_setup_migration_is_byte_for_byte_idempotent(self):
+        glossary_path = self.write_glossary(STALE_HEADER + OPERATOR_ENTRIES)
+        self.assertEqual(self.run_tool("setup").returncode, 0)
+        migrated = glossary_path.read_bytes()
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(glossary_path.read_bytes(), migrated)
+        self.assertEqual(result.stdout.strip(), "setup already complete")
+
+    def test_setup_leaves_current_header_byte_identical(self):
+        current = self.template_text() + OPERATOR_ENTRIES
+        glossary_path = self.write_glossary(current)
+
+        first = self.run_tool("setup")
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertNotIn("migrated", first.stdout)
+        self.assertEqual(glossary_path.read_bytes(), current.encode("utf-8"))
+        self.assert_one_complete_block(self.claude, current)
+        self.assert_one_complete_block(self.agents, current)
+
+        second = self.run_tool("setup")
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout.strip(), "setup already complete")
+        self.assertEqual(glossary_path.read_bytes(), current.encode("utf-8"))
+
+    def test_setup_leaves_glossary_without_separator_untouched(self):
+        fixture = "# Mine\n\n- **term** — meaning.\n"
+        glossary_path = self.write_glossary(fixture)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("migrated", result.stdout)
+        self.assertEqual(glossary_path.read_text(encoding="utf-8"), fixture)
+        self.assert_one_complete_block(self.claude, fixture)
+        self.assert_one_complete_block(self.agents, fixture)
+
+    def test_setup_migration_preserves_crlf_line_endings(self):
+        entries = "- **term** — meaning.\r\n"
+        stale = "# Personal Glossary\r\n\r\nOld header.\r\n\r\n---\r\n" + entries
+        glossary_path = self.write_glossary(stale)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = self.template_text().replace("\n", "\r\n") + entries
+        expected_bytes = expected.encode("utf-8")
+        self.assertEqual(glossary_path.read_bytes(), expected_bytes)
+        self.assertEqual(
+            expected_bytes.count(b"\n"), expected_bytes.count(b"\r\n")
+        )
+
+        again = self.run_tool("setup")
+
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(again.stdout.strip(), "setup already complete")
+        self.assertEqual(glossary_path.read_bytes(), expected.encode("utf-8"))
 
     def test_setup_repair_and_uninstall_preserve_mixed_line_endings(self):
         self.data_home.mkdir(parents=True)
@@ -377,6 +497,45 @@ class ManageMissingDefaultTargetsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(agents.exists())
         self.assertIn(manage.START, agents.read_text(encoding="utf-8"))
+
+    def test_setup_migrates_header_without_active_targets(self):
+        self.data_home.mkdir(parents=True)
+        glossary_path = self.data_home / "glossary.md"
+        glossary_path.write_text(
+            STALE_HEADER + OPERATOR_ENTRIES, encoding="utf-8"
+        )
+        claude_home = self.root / "claude-home"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "setup",
+                "--data-home",
+                str(self.data_home),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "HOME": str(self.root / "home"),
+                "CLAUDE_CONFIG_DIR": str(claude_home),
+                "CODEX_HOME": str(self.codex_home),
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"migrated {glossary_path.resolve()} header to current template",
+            result.stdout,
+        )
+        self.assertEqual(
+            glossary_path.read_text(encoding="utf-8"),
+            TEMPLATE.read_text(encoding="utf-8") + OPERATOR_ENTRIES,
+        )
+        self.assertFalse((claude_home / "CLAUDE.md").exists())
+        self.assertFalse((self.codex_home / "AGENTS.md").exists())
 
 
 class SynchronizationGuidanceSingleTargetTest(unittest.TestCase):

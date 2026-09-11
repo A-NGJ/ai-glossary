@@ -55,6 +55,13 @@ replaces each managed block with the canonical glossary's current complete
 content. This propagates glossary edits without duplicating blocks. Setup also
 removes legacy glossary `@`-import lines.
 
+Setup also reconciles the canonical file's tool-owned header with the bundled
+template, so header wording changes reach existing installs without
+reinstalling. The header region is everything from the top of the file through
+the `---` entries separator; setup replaces it only when it differs, leaves
+every term entry and lock below the separator byte-for-byte, and leaves a
+glossary with no `---` separator untouched.
+
 Asking it to uninstall removes only managed blocks and legacy glossary import
 lines from the global instruction files. It preserves unrelated instructions
 and leaves the data home in place: deleting your vocabulary is your call,
@@ -70,8 +77,9 @@ never a side effect.
   instructions; no nonstandard `@` expansion is required.
 - **Format**: one line per term —
   `- **term** — one-line meaning. *(locked; not: anti-terms; aka: aliases)*`.
-  The curation rules live in the file's own header, so they travel with the
-  data to any harness that can read a markdown file.
+  Everything above the `---` separator is a tool-owned header that setup keeps
+  in sync with the bundled template; the curation rules live there, so they
+  travel with the data to any harness that can read a markdown file.
 - **Precedence**: inside a repo, that repo's CONTEXT.md wins on conflict —
   the personal glossary holds portable meta-language, not project domain terms.
 - **Curation**: agents edit only the canonical glossary, then immediately rerun
