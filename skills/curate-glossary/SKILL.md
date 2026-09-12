@@ -10,28 +10,16 @@ portable vocabulary worth persisting, then interview the operator one candidate
 at a time. Also invoke it whenever the operator wants an explicit,
 approval-based pass over the current conversation.
 
-Before reading a glossary, inspect the current global `CLAUDE.md` and
-`AGENTS.md` managed blocks. Prefer the `ai-glossary:curation` JSON comment's
-`canonical_glossary` and `sync_command` pair. For an older block without that
-comment, pair its path after `For this installation, edit` with the exact fenced
-command after `by running`. If either block supplies a pair, use it together; if
-both supply one, require the pairs to match. Stop and ask the operator to repair
-setup when metadata is malformed or incomplete, or the pairs conflict. Never
-combine a canonical path from one source with a synchronization command from
-another.
+Resolve the canonical glossary from `$XDG_CONFIG_HOME/ai-glossary/glossary.md`,
+falling back to `~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is
+unset or empty. Synchronize it with this skill's own bundled `manage.py`, run
+with the default environment and paths. If the canonical glossary does not
+exist, stop and tell the operator to invoke `ai-glossary-setup`.
 
-When no current managed block supplies the pair, resolve the canonical glossary
-from `$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to
-`~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is unset or empty,
-and pair it with `manage.py setup` from the installed `ai-glossary-setup` skill
-folder using the same environment defaults. If the paired canonical file or
-setup script does not exist, stop and tell the operator to invoke
-`ai-glossary-setup`.
-
-Read only the canonical glossary from the resolved pair. Keep that exact pair
-unchanged for the whole interview. Validate the existing term grammar and
-alphabetical order before building candidates. If validation fails, report the
-problem and stop before asking for approvals or changing any file.
+Read only the canonical glossary from the resolved location. Keep it unchanged
+for the whole interview. Validate the existing term grammar and alphabetical
+order before building candidates. If validation fails, report the problem and
+stop before asking for approvals or changing any file.
 
 ## Entry format
 
@@ -100,15 +88,14 @@ the canonical file unchanged. Once valid, write the canonical file and
 immediately run:
 
 ```sh
-python3 <ai-glossary-setup skill folder>/manage.py setup
+python3 <curate-glossary skill folder>/manage.py setup
 ```
 
-Run the synchronization command from the same resolved pair used for the edit.
-With defaults, it reads the same XDG/default data home and synchronizes the
-generated blocks in `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md` and
-`${CODEX_HOME:-~/.codex}/AGENTS.md`; the managed-block form includes matching
-`--data-home`, `--claude-file`, and `--agents-file` overrides. Report and stop if
-synchronization fails; never edit a managed block directly.
+Run the bundled synchronization command from this skill. With defaults, it reads
+the same XDG/default data home and synchronizes the generated blocks in
+`${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md` and
+`${CODEX_HOME:-~/.codex}/AGENTS.md`. Report and stop if synchronization fails;
+never edit a managed block directly.
 
 Then ask about the next still-valid candidate. Mention every change in passing
 as it is written, and ask before deleting an existing entry. Ending normally or
