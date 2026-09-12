@@ -539,17 +539,31 @@ class ManageGlossaryTest(unittest.TestCase):
             self.assertNotIn("--claude-file", block)
             self.assertNotIn("--agents-file", block)
 
+    def test_curation_skill_bundles_manage_and_template_byte_identical(self):
+        curate = SKILL_DIR.parent / "curate-glossary"
+        # curate-glossary is self-contained: it runs its own bundled manage.py,
+        # which reads the template beside it. Pin both copies so they cannot
+        # drift silently from the ai-glossary-setup originals.
+        self.assertEqual(
+            (curate / "manage.py").read_bytes(),
+            (SKILL_DIR / "manage.py").read_bytes(),
+        )
+        self.assertEqual(
+            (curate / "templates" / "glossary.md").read_bytes(),
+            (SKILL_DIR / "templates" / "glossary.md").read_bytes(),
+        )
+
     def test_curation_skill_resolves_default_xdg_location(self):
         skill = SKILL_DIR.parent.joinpath("curate-glossary/SKILL.md").read_text(
             encoding="utf-8"
         )
         resolve = skill.index("Resolve the canonical glossary from")
-        read = skill.index("Read only the canonical glossary from the resolved pair")
+        read = skill.index("Read only the canonical glossary from the resolved location")
         validate_existing = skill.index("Validate the existing term grammar")
         candidates = skill.index("## Build the candidate set")
         validate_update = skill.index("Validate the complete proposed content")
         write = skill.index("Once valid, write the canonical file")
-        apply = skill.index("Run the synchronization command from the resolved pair")
+        apply = skill.index("Run the bundled synchronization command")
 
         self.assertLess(resolve, read)
         self.assertLess(read, validate_existing)
@@ -563,14 +577,14 @@ class ManageGlossaryTest(unittest.TestCase):
             "`XDG_CONFIG_HOME` is\nunset or empty",
             skill,
         )
-        self.assertIn(
-            "pair it with `manage.py setup` from the installed\n"
-            "`ai-glossary-setup` skill folder",
-            skill,
-        )
-        self.assertIn(
-            "stop and tell the operator\nto invoke `ai-glossary-setup`", skill
-        )
+        # The skill runs its own bundled script rather than reaching into the
+        # ai-glossary-setup skill folder.
+        self.assertIn("this skill's own bundled `manage.py`", skill)
+        self.assertIn("<curate-glossary skill folder>/manage.py setup", skill)
+        self.assertIn("stop and tell the operator", skill)
+        self.assertIn("invoke `ai-glossary-setup`", skill)
+        # ai-glossary-setup is named only by the "not set up yet" escape.
+        self.assertEqual(skill.count("ai-glossary-setup"), 1)
         self.assertIn("Report and stop if synchronization fails", skill)
         self.assertIn("never edit a managed block directly", skill)
         # Resolution no longer inspects managed blocks for a canonical/sync pair.
