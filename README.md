@@ -7,7 +7,7 @@ is curated in the open by the `curate-glossary` skill, which an agent invokes
 from the skill's own description whenever the conversation surfaces portable
 vocabulary worth keeping — a coined term, an explicit correction, an alias —
 and every addition is approved one candidate at a time, asking before any
-deletion and never rewording locked entries.
+deletion.
 
 ## Install
 
@@ -39,7 +39,7 @@ background or unattended pass.
 The skill finds at most ten strong, portable candidates, asks you to approve
 or reject them one at a time, writes each approval immediately to the
 canonical file, and synchronizes both managed copies after every write. It
-never deletes a term or rewords a locked one without your explicit consent.
+never deletes a term without your explicit consent.
 
 Fallback without the `skills` CLI:
 
@@ -62,7 +62,7 @@ Setup also reconciles the canonical file's tool-owned header with the bundled
 template, so header wording changes reach existing installs without
 reinstalling. The header region is everything from the top of the file through
 the `---` entries separator; setup replaces it only when it differs, leaves
-every term entry and lock below the separator byte-for-byte, and leaves a
+every term entry below the separator byte-for-byte, and leaves a
 glossary with no `---` separator untouched. The replacement header reuses the
 canonical file's dominant line-ending style — CRLF, or lone CR for a
 classic-Mac CR-only file — so migration does not mix endings. If `glossary.md`
@@ -106,10 +106,10 @@ settings key is preserved. Setup and uninstall themselves never read or change
   global Claude Code and Codex AGENTS.md files. Harnesses read ordinary inline
   instructions; no nonstandard `@` expansion is required.
 - **Format**: one line per term —
-  `- **term** — one-line meaning. *(locked; not: anti-terms; aka: aliases)*`.
+  `- **term** — one-line meaning. *(not: anti-terms; aka: aliases)*`.
   Everything above the `---` separator is a tool-owned header that setup keeps
-  in sync with the bundled template; the curation rules live there, so they
-  travel with the data to any harness that can read a markdown file.
+  in sync with the bundled template; it carries only how to read and use terms.
+  Curation rules live in the `curate-glossary` skill, not in the header.
 - **Precedence**: inside a repo, that repo's CONTEXT.md wins on conflict —
   the personal glossary holds portable meta-language, not project domain terms.
 - **Curation**: agents edit only the canonical glossary, then immediately rerun

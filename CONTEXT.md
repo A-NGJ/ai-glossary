@@ -2,7 +2,7 @@
 
 A user-global vocabulary store: the operator's meta-language, read by AI
 agents so they speak the operator's words, curated by agents in the open
-with the operator holding veto and per-term locks.
+with the operator holding veto.
 
 ## Language
 
@@ -57,15 +57,8 @@ _Avoid_: override, never-overlap
 **Curation**:
 Maintenance of the glossary file through the curation skill, which reviews
 the current conversation and proposes changes one candidate at a time. It
-adds only unlocked terms and never deletes or rewords a locked term without
-explicit consent.
+never deletes an existing term without the operator's explicit consent.
 _Avoid_: auto-capture
-
-**Lock**:
-A per-term flag (`locked` in the entry's italic group, or a leading 🔒)
-forbidding an agent from rewording or removing that term without the
-operator's explicit consent.
-_Avoid_: pin, freeze
 
 **Managed glossary block**:
 A marker-delimited generated copy of the canonical glossary embedded in a
@@ -91,11 +84,11 @@ overlapping candidates toward the more precise term and prefers refining a
 matching existing term. It presents evidence and a proposed line one candidate
 at a time for approval, revision, rejection, or stopping. Each approval is
 written immediately to the canonical file, validated for grammar and
-alphabetical order, and synchronized to both managed blocks before continuing;
-terms remain unlocked unless the operator requests a lock. Rejection means not
-during this invocation. Ending produces no summary; when nothing qualifies, it
-reports that no useful candidate was found. The skill is model-invoked from its
-own description, and the operator can also request it explicitly.
+alphabetical order, and synchronized to both managed blocks before continuing.
+Rejection means not during this invocation. Ending produces no summary; when
+nothing qualifies, it reports that no useful candidate was found. The skill is
+model-invoked from its own description, and the operator can also request it
+explicitly.
 
 **Harness**:
 An AI tool that consumes the glossary (Claude Code is the first). The

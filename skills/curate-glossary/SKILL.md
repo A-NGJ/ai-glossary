@@ -33,6 +33,22 @@ unchanged for the whole interview. Validate the existing term grammar and
 alphabetical order before building candidates. If validation fails, report the
 problem and stop before asking for approvals or changing any file.
 
+## Entry format
+
+Every term is one line, and the term list stays flat and alphabetized. An
+optional italic group at the end carries the term's anti-terms and aliases, in
+that order. The format is easiest to learn from worked examples:
+
+- **ubiquitous language** — one shared vocabulary used identically in conversation, docs, and code.
+- **session compaction** — summarizing older conversation history so a session fits its context window. *(not: compaction)*
+- **hook** — code fired deterministically when an event occurs, not invoked by choice.
+- **issue** — a work item recorded in a ticketing system such as GitHub Issues or Jira. *(not: ticket; aka: work item)*
+
+A good term is broad enough to apply beyond one tool or project, yet still
+definable in one line; it is a word the operator genuinely uses. Never narrow a
+common word to one niche sense — qualify it instead (**session compaction**,
+not *compaction*).
+
 ## Build the candidate set
 
 Before asking the first question, build one stable set of at most ten
@@ -66,16 +82,13 @@ For each candidate, show:
 
 - the exact supporting quote or quotes from the operator;
 - why the evidence qualifies;
-- one proposed glossary line following the file's entry grammar;
+- one proposed glossary line following the entry format above;
 - the choices **approve**, **revise**, **reject**, and **stop**.
 
 Ask only about this candidate, then wait. A rejection means "not during this
 invocation" and creates no durable record. A stop ends immediately. Revisions
 may merge or invalidate candidates already in the stable set, but never add new
 ones.
-
-Terms are unlocked unless the operator requests a lock. If an existing term is
-locked, state that approval grants consent only for the exact proposed edit.
 
 ## Apply each approval immediately
 
@@ -97,6 +110,7 @@ generated blocks in `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md` and
 `--data-home`, `--claude-file`, and `--agents-file` overrides. Report and stop if
 synchronization fails; never edit a managed block directly.
 
-Then ask about the next still-valid candidate. Ending normally or through
-**stop** produces no summary: approved terms are already persisted and
+Then ask about the next still-valid candidate. Mention every change in passing
+as it is written, and ask before deleting an existing entry. Ending normally or
+through **stop** produces no summary: approved terms are already persisted and
 synchronized.
