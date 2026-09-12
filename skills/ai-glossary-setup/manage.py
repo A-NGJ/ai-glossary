@@ -5,10 +5,8 @@ from __future__ import annotations
 
 import argparse
 import errno
-import json
 import os
 import re
-import shlex
 import sys
 import tempfile
 from pathlib import Path
@@ -77,61 +75,7 @@ def unmanaged_text(text: str) -> str:
     return remove_legacy_imports(remove_managed_blocks(text))
 
 
-def synchronization_guidance(
-    data_home: Path,
-    claude_file: Optional[Path],
-    agents_file: Optional[Path],
-) -> str:
-    if claude_file is None and agents_file is None:
-        raise ValueError("synchronization_guidance requires at least one target")
-
-    glossary_file = data_home / "glossary.md"
-    command_args = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "setup",
-        "--data-home",
-        str(data_home),
-    ]
-    if claude_file is not None:
-        command_args += ["--claude-file", str(claude_file)]
-    if agents_file is not None:
-        command_args += ["--agents-file", str(agents_file)]
-    command = shlex.join(command_args)
-    curation_metadata = json.dumps(
-        {"canonical_glossary": str(glossary_file), "sync_command": command},
-        separators=(",", ":"),
-    )
-
-    if claude_file is not None and agents_file is not None:
-        peer_prose = (
-            f"This managed block in `{claude_file}` and its peer in "
-            f"`{agents_file}` are generated copies; never edit either block "
-            "directly. After every canonical edit, immediately synchronize "
-            "both generated copies by running:"
-        )
-    else:
-        present = claude_file if claude_file is not None else agents_file
-        peer_prose = (
-            f"This managed block in `{present}` is a generated copy; never "
-            "edit it directly. After every canonical edit, immediately "
-            "synchronize it by running:"
-        )
-
-    return (
-        "## Canonical glossary workflow\n\n"
-        f"<!-- ai-glossary:curation {curation_metadata} -->\n\n"
-        "The canonical editable file is "
-        "`$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to "
-        "`~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is unset or "
-        "empty. For this installation, "
-        f"edit `{glossary_file}` to curate terms. "
-        f"{peer_prose}\n\n"
-        f"```sh\n{command}\n```\n\n"
-    )
-
-
-def managed_block(glossary: str, guidance: str = "") -> str:
+def managed_block(glossary: str) -> str:
     if START in glossary or END in glossary:
         raise ValueError("glossary contains reserved managed-block markers")
     # Terminate the embedded glossary with its own dominant line ending so the
@@ -143,11 +87,11 @@ def managed_block(glossary: str, guidance: str = "") -> str:
     content = glossary
     if not content.endswith(("\n", "\r")):
         content += _dominant_newline(content)
-    return f"{START}\n{guidance}{content}{END}\n"
+    return f"{START}\n{content}{END}\n"
 
 
-def setup_target(text: str, glossary: str, guidance: str = "") -> str:
-    return unmanaged_text(text) + managed_block(glossary, guidance)
+def setup_target(text: str, glossary: str) -> str:
+    return unmanaged_text(text) + managed_block(glossary)
 
 
 def atomic_write(path: Path, content: str) -> None:
@@ -347,15 +291,10 @@ def main() -> int:
                 )
                 if is_explicit or target.exists()
             )
-            guidance_targets = (
-                claude_file if claude_explicit or claude_file.exists() else None,
-                agents_file if agents_explicit or agents_file.exists() else None,
-            )
             updates = {}
             if active_targets:
-                guidance = synchronization_guidance(data_home, *guidance_targets)
                 updates = {
-                    target: setup_target(read_target(target), glossary, guidance)
+                    target: setup_target(read_target(target), glossary)
                     for target in active_targets
                 }
             for target, updated in updates.items():
