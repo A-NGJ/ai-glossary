@@ -49,7 +49,7 @@ the file through the first line whose content is exactly `---` — is tool-owned
 and mirrors `templates/glossary.md`. Setup brings a stale header up to the
 current template: when that region differs, it replaces only the header region
 and prints `migrated <path> header to current template`. Everything after the
-`---` separator — every term entry and lock — is preserved byte-for-byte, and
+`---` separator — every term entry — is preserved byte-for-byte, and
 migration runs before the managed blocks are generated so both carry the
 migrated header in the same run. The migrated header reuses the canonical
 file's dominant line-ending style — CRLF for a CRLF file, lone CR for a

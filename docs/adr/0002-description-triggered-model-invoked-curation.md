@@ -1,5 +1,10 @@
 # Description-triggered, model-invoked curation
 
+_Note: the lock-protection clause below was retired by
+[ADR-0003](0003-skill-owned-curation-guidance-and-retired-term-locks.md) —
+skill-owned curation guidance and retired term locks. The reasoning below is
+retained for history._
+
 The glossary previously grew through a config-mandated automatic pass: a
 Claude Code `SessionEnd` hook and an Opencode `session.idle` plugin invoked a
 shared, deterministic command at the end of every session, writing qualifying

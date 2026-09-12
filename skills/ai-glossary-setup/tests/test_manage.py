@@ -20,30 +20,32 @@ manage = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(manage)
 
-# The pre-0f171b9 Curation paragraph, retained as the known stale-header drift.
-CURRENT_CURATION = (
+# A stale tool-owned header from before curation guidance moved out of the
+# embedded header and into the curate-glossary skill.
+STALE_HEADER = (
+    "# Personal Glossary\n"
+    "\n"
+    "Operator meta-language — these terms are how the operator names things; use\n"
+    "them. Inside a repo, its CONTEXT.md wins on conflict.\n"
+    "\n"
+    "Use terms naturally — never announce or narrate that you are applying the\n"
+    "glossary. When the operator uses an anti-term, gently point to the canonical\n"
+    "term; don't just avoid the anti-term in your own reply.\n"
+    "\n"
     "Curation: capture only portable language whose meaning survives moving to\n"
     "another repo — project terms belong in that repo's CONTEXT.md. Mention every\n"
-    "change in passing. Ask before deleting an entry. An entry marked `locked` (or\n"
-    "a leading 🔒) keeps its wording unless the operator consents to change it.\n"
-)
-STALE_CURATION = (
-    "Curation: you maintain this file. Add explicit terminology corrections\n"
-    "immediately. Add a distinctive coined term after the operator uses it\n"
-    "repeatedly; refine a meaning when usage drifts. Capture only portable language\n"
-    "whose meaning survives moving to another repo — project terms belong in that\n"
-    "repo's CONTEXT.md. Mention every change in passing. Ask before deleting an\n"
-    "entry. An entry marked `locked` (or a leading 🔒) keeps its wording unless the\n"
-    "operator consents to change it.\n"
-)
-STALE_HEADER = TEMPLATE.read_text(encoding="utf-8").replace(
-    CURRENT_CURATION, STALE_CURATION, 1
+    "change in passing. Ask before deleting an entry.\n"
+    "\n"
+    "Entry grammar — one line per term, flat and alphabetized:\n"
+    "`- **term** — one-line meaning. *(not: anti-term, …; aka: alias, …)*`\n"
+    "\n"
+    "---\n"
 )
 
 OPERATOR_ENTRIES = (
-    "- **alpha** — first meaning. *(locked)*\n"
+    "- **alpha** — first meaning. *(not: beta; aka: a)*\n"
     "- **beta** — second meaning. *(not: gamma; aka: b)*\n"
-    "- **🔒delta** — locked delta meaning.\n"
+    "- **delta** — delta meaning.\n"
 )
 
 
@@ -162,7 +164,7 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual((self.claude.read_bytes(), self.agents.read_bytes()), first)
         self.assertEqual(result.stdout.strip(), "setup already complete")
 
-    def test_setup_migrates_stale_header_and_preserves_entries_and_locks(self):
+    def test_setup_migrates_stale_header_and_preserves_entries_and_aliases(self):
         glossary_path = self.write_glossary(STALE_HEADER + OPERATOR_ENTRIES)
 
         result = self.run_tool("setup")
@@ -175,11 +177,12 @@ class ManageGlossaryTest(unittest.TestCase):
             f"migrated {glossary_path.resolve()} header to current template",
             result.stdout,
         )
-        self.assertNotIn("Add explicit terminology corrections", migrated)
-        self.assertIn("Curation: capture only portable language", migrated)
+        # The obsolete curation guidance is gone from the migrated header.
+        self.assertNotIn("Curation: capture only portable language", migrated)
+        self.assertNotIn("Entry grammar — one line per term", migrated)
         self.assert_one_complete_block(self.claude, expected)
         self.assert_one_complete_block(self.agents, expected)
-        # Every term, lock, anti-term, and alias survives byte-for-byte.
+        # Every term, anti-term, and alias survives byte-for-byte.
         self.assertTrue(migrated.endswith(OPERATOR_ENTRIES))
         self.assertIn(OPERATOR_ENTRIES, self.claude.read_text(encoding="utf-8"))
         self.assertIn(OPERATOR_ENTRIES, self.agents.read_text(encoding="utf-8"))
@@ -325,7 +328,7 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertTrue(link.is_symlink(), "setup must not replace the symlink")
         expected = self.template_text() + OPERATOR_ENTRIES
         self.assertEqual(target.read_text(encoding="utf-8"), expected)
-        # Every term, lock, anti-term, and alias survives byte-for-byte.
+        # Every term, anti-term, and alias survives byte-for-byte.
         self.assertTrue(target.read_text(encoding="utf-8").endswith(OPERATOR_ENTRIES))
         self.assertIn(
             f"migrated {self.data_home.resolve() / 'glossary.md'} "
