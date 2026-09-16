@@ -30,7 +30,7 @@
 
 - **Orchestrator**: Exactly one coordinates each active intent graph. It alone mutates workflow state, delegates assignments, owns the durable issue branch and draft PR, posts research, and mechanically applies unchanged conflict-free commits. It never edits product artifacts or resolves conflicts.
 - **Implementation Specialist**: Owns one bounded repository-changing assignment at a time. It cannot broaden intent, weaken completion, write tracker state, own the durable issue branch, or communicate/delegate directly to specialists. All communication goes through the orchestrator and artifacts.
-- **Researcher**: Read-only. Sourced findings, access dates, uncertainty, and implications go to the orchestrator. Receives no worktree, modifies no artifacts/state, and makes no product-direction decisions. Pre-implementation research is a separate blocking issue. Reports are posted as append-only research comments. Stateful experiments or generated repository artifacts are prototype/implementation assignments, not read-only research.
+- **Researcher**: Read-only. Sourced findings, access dates, uncertainty, and implications go to the orchestrator. Modifies no artifacts/state and makes no product-direction decisions. A researcher may use a disposable read-only worktree to check out the revision it studies, never committing to it, disposed of as a temporary worktree after its report is posted. Pre-implementation research is a separate blocking issue. Reports are posted as append-only research comments. Stateful experiments or generated repository artifacts are prototype/implementation assignments, not read-only research.
 - **Reviewer**: Fresh independent read-only reviewer assesses every correctness-bearing integrated attempt or research report, returning `Accepted`, `Changes Required`, or `Evidence Required`. Reviewers cannot modify artifacts or workflow state. Each finding is reported as either against a stated requirement of the issue under review or as a defect observed outside those requirements. Reviewers receive no earlier round's findings and hold no authority over loop termination.
 - **Operator**: Explicitly approves every implementation PR; only an operator merges it. Agents never approve or merge on the operator's behalf.
 - No agent performs cross-harness session resume, automatic package updates, or automatic repository-policy migrations as an incidental part of any assignment; each needs its own bounded, operator-approved scope.
@@ -112,6 +112,8 @@ Before dispatch, the orchestrator applies a single-issue test and records which 
 
 An issue failing any condition becomes an intent issue with an explicit exit criterion plus one child issue per independently deliverable outcome, each meeting the activation threshold, with contribution and explicit dependencies recorded separately in the tracker before dispatch. The orchestrator owns the split, since decomposition is tracker state; one assignment carries one issue.
 
+Size an issue by its completion claims, not its prose: an issue whose claims cannot form one such set, including one whose body carries more user stories than those claims cover, is already a complex intent.
+
 Required pre-implementation research becomes a separate blocking research issue. Add a dependent integration issue when the children's evidence would not prove their seam.
 
 Recorded operator approval is required before any child starts when the decomposition changes scope, order or delivery expectations. Ambiguity needing a product decision escalates instead of being split on agent judgment.
@@ -124,6 +126,7 @@ Recorded operator approval is required before any child starts when the decompos
 - Delivery classifications: `feature`, `bugfix`, `docs`, `hotfix`, `refactor`, `chore`.
 - Durable branch naming: `<type>/<issue>-<slug>`.
 - Each implementation issue has one durable branch and one draft PR; pre-Done corrections stay there. Defects after Done become new issues and delivery lines. Merged issue branches are deleted by default.
+- When it creates the durable branch the orchestrator links it to the issue in the selected tracker — the tracker's native branch-linking mechanism where one exists, otherwise a clickable branch reference — so the association is visible and never left as an unlinked local branch.
 - Every repository-changing assignment uses a fresh temporary worktree and temporary assignment branch created from the current durable issue-branch revision under `${XDG_CONFIG_HOME:-~/.config}/aaf/scratch/<repo-identity>/<assignment-id>/`.
 - Implementation specialists return a bounded commit. The orchestrator applies it unchanged only if conflict-free, serializing integration. Semantic conflicts require another specialist assignment.
 - Specialists cannot write `.workflow/` or tracker state.
@@ -139,8 +142,8 @@ Recorded operator approval is required before any child starts when the decompos
 
 - Identical retries are allowed only for safe, evidence-backed transient failures.
 - Maximum identical attempts: 2.
-- Maximum Changes Required verdicts for the same unresolved claim: 2.
-- The second Changes Required verdict triggers operator escalation before another implementation attempt.
+- Maximum non-accepted verdicts carrying a finding against the same unresolved claim: 2, counted from the tracker's claim-bound findings rather than from prose; a claim carrying none counts as zero.
+- The second non-accepted verdict carrying a recorded finding against the same unresolved claim triggers operator escalation before another implementation attempt.
 - Hitting the retry limit requires changed parameters or approach, or operator escalation.
 - Maximum review rounds per issue (unconditional, lifetime): 3. A review round is any recorded verdict that is not `Accepted` — counted whether or not its findings repeat an earlier round's, so the bound cannot be avoided by raising a different finding each round. Before dispatching any assignment for an issue already under review, the orchestrator counts that issue's recorded non-accepted verdicts and does not dispatch at the maximum. At the maximum it clears the active specialist, records the escalation with every outstanding finding and its routing, keeps the issue In Progress, and stops. The count resets only on recorded operator re-authorization.
 - Route reviewer findings by what the issue promised: a finding against a stated requirement of the issue under review stays in that issue for its next implementation assignment; a defect observed outside those requirements becomes a successor issue, with the issue under review depending on that successor only when the defect blocks its acceptance. Never hold an issue open for defects it never promised to resolve.

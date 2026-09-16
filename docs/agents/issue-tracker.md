@@ -69,39 +69,62 @@ Workflow state is tracked via dedicated labels (open/closed status alone is not 
 
 ### Issue Record Structure
 
-Every AAF issue body contains structured metadata, outcome/constraints, completion boundary, and evidence sections:
+Every AAF issue body carries exactly one fenced `aaf-metadata` block whose field names and spellings are exact:
 
-```markdown
-<!-- aaf-metadata
-type: feature | bugfix | docs | hotfix | refactor | chore
+````markdown
+```aaf-metadata
+type: delivery
 priority: 0
-parent: null | <issue-number>
+parent: null
 depends_on: []
 active_specialist: null
+implementation_specialists: []
 input_revisions: []
 required_checks: ["python3 -m pytest skills/ai-glossary-setup/tests/test_manage.py", "ruff check ."]
-created_at: YYYY-MM-DDTHH:MM:SSZ
-updated_at: YYYY-MM-DDTHH:MM:SSZ
--->
-
-## Outcome
-Why this issue exists and observable result.
-
-## Constraints and Uncertainty
-Known limitations, non-goals, and identified uncertainties.
-
-## Completion Boundary and Exit Criterion
-Explicit exit criterion and required checks/evidence.
-
-## Evidence and Verification
-Revision-linked verification commands, results, and independent review verdicts.
+completion_claims: ["C1"]
+created: 2026-08-30
+updated: 2026-08-30
 ```
+````
+
+`type` is one of `delivery | research | integration | coordination` for workflow purposes; delivery classifications (`feature`, `bugfix`, `docs`, `hotfix`, `refactor`, `chore`) remain branch/PR classifications. Claims appear one per line under `## Claims`, each with a stable ID that is never changed or removed once recorded:
+
+```markdown
+## Claims
+
+- claim: id=C1 | The settings page persists the theme on reload
+```
+
+Results are append-only record lines under their sections. Under `## Review`, a verdict line is followed by its finding lines; a finding binds to one claim ID or is scoped `observed-outside`:
+
+```markdown
+## Evidence
+
+- completion-evidence: revision=<40-char sha> | <command run and observed result>
+- check-result: name=pytest | passed=true | revision=<40-char sha>
+
+## Review
+
+- review: verdict=changes-required | reviewer=<name> | revision=<40-char sha>
+- finding: claim=C1 | <defect against a stated requirement, with evidence>
+- finding: scope=observed-outside | <defect the issue never promised>
+```
+
+A verdict is `accepted`, `changes-required`, or `evidence-required`, never `Verdict: Changes Required` prose or an HTML comment. A verdict written in any other dialect is a counterfeit record: nothing reads it and every gate that depends on it silently never runs. `done` requires, at the revision named by the last `completion-evidence` line, a `passed=true` `check-result` for every `required_checks` entry and a final `accepted` `review` line whose reviewer is not in `implementation_specialists` and which follows the latest evidence or check line.
+
+Tracker records and comments never expose resolved local machine paths — home directories, XDG config directories, or AAF scratch roots. Record each such path in its unresolved environment-variable form, keeping the repository-identity and assignment-id components: a local `<config>/aaf/scratch/<repo-identity>/<assignment-id>/` worktree is recorded as `${XDG_CONFIG_HOME:-~/.config}/aaf/scratch/<repo-identity>/<assignment-id>/`. Agents resolve the real path locally for verification and cleanup; only the recorded copy stays unresolved.
+
+The body also carries outcome/constraints, completion boundary, and exit criterion in prose sections around the structured blocks. Validate dependencies and state against the recorded fields; do not introduce parallel issue files.
+
+### Durable Branch Linking
+
+When the orchestrator creates an implementation issue's durable branch, it links the branch to the issue using GitHub's native branch-linking so the association is visible on the issue. Where native linking is unavailable, add a clickable branch reference (a `refs/heads/...` link or a branch-mention line) to the issue body or a comment instead — never leave the branch as an unlinked local branch.
 
 ### Activity Comments
 
 Issue comments record append-only activity:
 - Actor, event, prior/current claim, evidence, authority, and next action.
-- Revision-linked check executions and reviewer verdicts (`Accepted`, `Changes Required`, `Evidence Required`).
+- Revision-linked check executions and reviewer verdicts (`accepted`, `changes-required`, `evidence-required`).
 - Operator approvals, failure reports, and state transitions.
 - Pre-implementation research reports.
 
