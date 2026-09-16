@@ -27,8 +27,11 @@ complete content in clearly delimited managed blocks in:
 - `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md` for Claude Code
 - `${CODEX_HOME:-~/.codex}/AGENTS.md` for AGENTS.md-based Codex harnesses
 
-The files and their parent directories are created when absent. Existing
-instructions outside the managed blocks are preserved.
+By default setup writes only targets that already exist on disk, so a harness
+you have not installed is left alone rather than gaining an unused config file.
+Passing `--claude-file` or `--agents-file` explicitly always writes that path,
+creating missing parent directories and the file itself. Existing instructions
+outside the managed blocks are preserved.
 
 Vocabulary is curated by the `curate-glossary` skill. Agents invoke it from
 the skill's own description when the conversation surfaces vocabulary worth
@@ -50,9 +53,9 @@ ln -s "$(pwd)/ai-glossary/skills/ai-glossary-setup" ~/.claude/skills/ai-glossary
 
 ## Repair and uninstall
 
-Re-running the setup skill is idempotent: it recreates missing files and
-replaces each managed block with the canonical glossary's current complete
-content. The embedded glossary keeps the canonical file's dominant line-ending
+Re-running the setup skill is idempotent: it replaces each existing target's
+managed block with the canonical glossary's current complete content. The
+embedded glossary keeps the canonical file's dominant line-ending
 style — lone CR for a classic-Mac CR-only file — so regenerating a block never
 appends a foreign LF or CRLF before the end marker; the markers themselves stay
 LF-delimited. This propagates glossary edits without duplicating blocks. Setup
