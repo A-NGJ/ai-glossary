@@ -18,6 +18,10 @@ LEGACY_IMPORT = re.compile(
     r"^\s*@[^\r\n]*[\\/]ai-glossary[\\/]glossary\.md\s*$"
 )
 ENTRIES_SEPARATOR = "---"
+# Printed after a setup run that changed at least one target. It names the
+# operator's action rather than claiming any automatic reload happened.
+RELOAD_NOTICE = "restart this agent session to load the updated glossary"
+
 
 def default_data_home() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
@@ -310,6 +314,8 @@ def main() -> int:
                     changes.append(f"removed managed glossary from {target}")
         if changes:
             print("\n".join(changes))
+            if args.action == "setup":
+                print(RELOAD_NOTICE)
         elif args.action == "setup":
             print("setup already complete")
         else:

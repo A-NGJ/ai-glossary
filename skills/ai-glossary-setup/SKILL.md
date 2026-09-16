@@ -83,9 +83,17 @@ resynchronize the managed blocks; a rerun does not duplicate blocks. Report each
 path printed by the command; `setup already complete` means no bytes needed
 changing.
 
-Done when the command exits zero, the canonical glossary exists, and each
-active global file contains exactly one managed block with its complete
-content.
+When a setup run makes any change — creating the glossary, migrating its
+header, or synchronizing a target — the command prints `restart this agent
+session to load the updated glossary` after the change lines. Relay that
+instruction to the operator: a newly written managed block is not in the
+running session's context until a new agent session starts. Uninstall never
+prints a reload line, and this skill never reloads the harness itself.
+
+Done when the command exits zero, the canonical glossary exists, each active
+global file contains exactly one managed block with its complete content, and —
+when the command printed the restart instruction — the operator has been told to
+start a new session.
 
 ## Uninstall
 
