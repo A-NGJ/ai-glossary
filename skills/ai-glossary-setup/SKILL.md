@@ -44,11 +44,24 @@ does any other symlink that cannot be resolved to one (for example, a link that
 points through a regular file). Setup refuses each with an error that names the
 cause and a non-zero exit instead of replacing the link with a regular file.
 
+When the canonical glossary does not exist yet — a first installation — offer
+the choice of the word the glossary uses for the human in the loop before
+running setup, and pass it as `--term`: `operator` (the default), `user`, or
+`developer` are the natural choices. Setup substitutes the chosen word for
+every `operator` occurrence in the seeded header, capitalizing the
+sentence-initial one, so the header reads naturally with that word. When the
+canonical glossary already exists, setup keeps its installed word: the word is
+read back from the glossary's own header, so header migration and managed-block
+sync never revert a chosen word to `operator`. Passing `--term` explicitly
+overrides the installed word and migrates the header to it — the way to change
+the word later.
+
 In the canonical glossary, the **header region** — everything from the start of
 the file through the first line whose content is exactly `---` — is tool-owned
-and mirrors `templates/glossary.md`. Setup brings a stale header up to the
-current template: when that region differs, it replaces only the header region
-and prints `migrated <path> header to current template`. Everything after the
+and mirrors `templates/glossary.md` rendered with the glossary's installed
+word. Setup brings a stale header up to the current template with that word:
+when that region differs, it replaces only the header region and prints
+`migrated <path> header to current template`. Everything after the
 `---` separator — every term entry — is preserved byte-for-byte, and
 migration runs before the managed blocks are generated so both carry the
 migrated header in the same run. The migrated header reuses the canonical
@@ -126,7 +139,8 @@ python3 <skill folder>/manage.py setup \
   --agents-file /absolute/AGENTS.md
 ```
 
-Use the same options with `uninstall`. Relative override paths are accepted but
+`--term` combines with every form above. Use the same options with
+`uninstall`. Relative override paths are accepted but
 absolute paths make the changed targets unambiguous. An explicitly passed
 target is always written, even when it does not yet exist, so this is the way to
 install the glossary into a harness that is not yet on disk.

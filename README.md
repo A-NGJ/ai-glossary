@@ -33,6 +33,14 @@ Passing `--claude-file` or `--agents-file` explicitly always writes that path,
 creating missing parent directories and the file itself. Existing instructions
 outside the managed blocks are preserved.
 
+During a first installation you choose the word the glossary uses for you —
+the human in the loop — by passing `--term user` (or `--term developer`; the
+default is `operator`). Setup substitutes it for every `operator` occurrence
+in the seeded header, capitalizing the sentence-initial one, so the header
+reads naturally with that word. The choice lives in the glossary file itself:
+later setup runs, including header migration, keep the installed word, and
+passing `--term` again is how you change it.
+
 When setup changes a file the skill tells you to start a new agent session so
 the updated glossary block is in context. A run with nothing to change prints
 only `setup already complete`.
@@ -67,7 +75,10 @@ also removes legacy glossary `@`-import lines.
 
 Setup also reconciles the canonical file's tool-owned header with the bundled
 template, so header wording changes reach existing installs without
-reinstalling. The header region is everything from the top of the file through
+reinstalling. The template is rendered with the glossary's installed word
+first, so reconciliation never reverts a chosen `--term` back to `operator`;
+pass `--term` to change the word. The header region is everything from the top
+of the file through
 the `---` entries separator; setup replaces it only when it differs, leaves
 every term entry below the separator byte-for-byte, and leaves a
 glossary with no `---` separator untouched. The replacement header reuses the
@@ -115,7 +126,8 @@ settings key is preserved. Setup and uninstall themselves never read or change
 - **Format**: one line per term —
   `- **term** — one-line meaning. *(not: anti-terms; aka: aliases)*`.
   Everything above the `---` separator is a tool-owned header that setup keeps
-  in sync with the bundled template; it carries only how to read and use terms.
+  in sync with the bundled template rendered with your chosen `--term` word
+  (default `operator`); it carries only how to read and use terms.
   Curation rules live in the `curate-glossary` skill, not in the header.
 - **Precedence**: inside a repo, that repo's CONTEXT.md wins on conflict —
   the personal glossary holds portable meta-language, not project domain terms.
