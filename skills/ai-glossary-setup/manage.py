@@ -18,6 +18,14 @@ LEGACY_IMPORT = re.compile(
     r"^\s*@[^\r\n]*[\\/]ai-glossary[\\/]glossary\.md\s*$"
 )
 ENTRIES_SEPARATOR = "---"
+DEFAULT_TERM = "operator"
+TERM_SLOT = re.compile(r"\boperator\b")
+TERM_SLOT_CAPITALIZED = re.compile(r"\bOperator\b")
+# Every header this tool seeds or migrates renders the template's
+# definitional sentence with the installed term in it, so that sentence is
+# what installed_term() reads the term back from. Keep it in step with the
+# template's wording.
+INSTALLED_TERM_ANCHOR = re.compile(r"these terms are how the (.+?) names things")
 
 def default_data_home() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
@@ -195,6 +203,39 @@ def _dominant_newline(text: str) -> str:
     return "\n"
 
 
+def validate_term(term: str) -> str:
+    """Normalize a ``--term`` value and refuse one that cannot seed a header.
+
+    The term is spliced into single lines of the header, so a value carrying a
+    line break would corrupt the file structure; an empty one would leave the
+    slot blank. Whitespace padding is trimmed rather than preserved.
+    """
+    normalized = term.strip()
+    if not normalized:
+        raise ValueError("--term must name a word for the human in the loop")
+    if "\n" in normalized or "\r" in normalized:
+        raise ValueError("--term must be a single-line word or phrase")
+    return normalized
+
+
+def substitute_term(text: str, term: str) -> str:
+    """Render ``text`` with ``term`` in place of the template's word for the human in the loop.
+
+    The template names that human once capitalized (``Operator``, starting the
+    meta-language sentence) and twice lowercase (``operator``) mid-sentence.
+    Every occurrence is replaced so the rendered text reads naturally with the
+    chosen word: lowercase slots carry ``term.lower()`` and the sentence-initial
+    slot carries that word with its first character uppercased. Both forms are
+    pure functions of ``term.lower()``, so ``installed_term`` recovers exactly
+    the word a rendered header was written with and re-running setup stays
+    byte-stable.
+    """
+    lowered = term.lower()
+    capitalized = lowered[:1].upper() + lowered[1:]
+    text = TERM_SLOT.sub(lambda _match: lowered, text)
+    return TERM_SLOT_CAPITALIZED.sub(lambda _match: capitalized, text)
+
+
 def split_glossary_header(text: str) -> Optional[tuple[str, str]]:
     """Split a glossary into its tool-owned header region and operator body.
 
@@ -213,13 +254,41 @@ def split_glossary_header(text: str) -> Optional[tuple[str, str]]:
     return None
 
 
-def migrate_glossary_header(text: str, template: str) -> Optional[str]:
+def installed_term(text: str) -> Optional[str]:
+    """Recover the term a glossary's tool-owned header was rendered with.
+
+    The term is read back from the header's definitional sentence, so the
+    glossary file itself stays the single source of truth for the installed
+    term — no sidecar state to fall out of step, and the term travels with the
+    file across dotfiles restores, symlinks, and uninstall. Returns ``None``
+    when the file has no entries separator (no tool-owned header to read) or
+    the sentence does not match (a hand-written or unrecognized header);
+    callers fall back to ``DEFAULT_TERM``, which reproduces the pre-choice
+    behavior for existing ``operator`` installations.
+    """
+    split = split_glossary_header(text)
+    if split is None:
+        return None
+    header, _body = split
+    match = INSTALLED_TERM_ANCHOR.search(_normalize_newlines(header))
+    if match is None:
+        return None
+    term = match.group(1).strip()
+    return term or None
+
+
+def migrate_glossary_header(text: str, template: str, term: str) -> Optional[str]:
     """Replace a stale tool-owned header region with the template's.
+
+    The template header is rendered with ``term`` first, so a glossary
+    installed with a non-default term is compared against — and migrated to —
+    that term's header, never reverted to the default. The term must be passed
+    explicitly: defaulting it here would silently revert a chosen term.
 
     Returns ``None`` when there is nothing to do: the file has no entries
     separator (so it cannot be confidently identified as a seeded glossary),
-    or its header already matches the template modulo line endings. Operator
-    entries after the separator are preserved byte-for-byte.
+    or its header already matches the rendered template modulo line endings.
+    Operator entries after the separator are preserved byte-for-byte.
     """
     canonical = split_glossary_header(text)
     current = split_glossary_header(template)
@@ -227,14 +296,15 @@ def migrate_glossary_header(text: str, template: str) -> Optional[str]:
         return None
     canonical_header, body = canonical
     template_header, _ = current
-    if _normalize_newlines(canonical_header) == _normalize_newlines(template_header):
+    target_header = substitute_term(template_header, term)
+    if _normalize_newlines(canonical_header) == _normalize_newlines(target_header):
         return None
     # Match the canonical file's own dominant line-ending style so the
     # migrated header does not introduce a foreign ending. A CR-only
     # (classic-Mac) glossary therefore gets a CR-only header, not an LF one
     # spliced onto its CR body.
     newline = _dominant_newline(text)
-    migrated_header = _normalize_newlines(template_header).replace("\n", newline)
+    migrated_header = _normalize_newlines(target_header).replace("\n", newline)
     return migrated_header + body
 
 
@@ -244,6 +314,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-home", type=Path, default=default_data_home())
     parser.add_argument("--claude-file", type=Path, default=None)
     parser.add_argument("--agents-file", type=Path, default=None)
+    parser.add_argument(
+        "--term",
+        default=None,
+        help=(
+            "word for the human in the loop used in the glossary header "
+            f"(default: {DEFAULT_TERM} when seeding; an existing glossary "
+            "keeps its installed word)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -264,6 +343,9 @@ def main() -> int:
     try:
         changes: list[str] = []
         if args.action == "setup":
+            # Validate the term before touching any file so a bad value is
+            # refused with the standard error path and nothing is written.
+            term = validate_term(args.term) if args.term is not None else None
             # Write through a symlinked canonical glossary (often pointing into
             # a dotfiles repo) instead of replacing the link with a regular
             # file. A symlink that cannot be resolved to a real target -- a
@@ -273,10 +355,17 @@ def main() -> int:
             data_home.mkdir(parents=True, exist_ok=True)
             template_text = template.read_text(encoding="utf-8")
             if not glossary_file.exists():
-                atomic_write(glossary_write_path, template_text)
+                atomic_write(
+                    glossary_write_path,
+                    substitute_term(template_text, term or DEFAULT_TERM),
+                )
                 changes.append(f"created {glossary_file}")
             glossary = read_target(glossary_file)
-            migrated = migrate_glossary_header(glossary, template_text)
+            if term is None:
+                # No term was requested, so keep the one the glossary already
+                # carries; an unrecognized header falls back to the default.
+                term = installed_term(glossary) or DEFAULT_TERM
+            migrated = migrate_glossary_header(glossary, template_text, term)
             if migrated is not None:
                 atomic_write(glossary_write_path, migrated)
                 glossary = migrated

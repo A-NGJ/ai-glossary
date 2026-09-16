@@ -57,12 +57,15 @@ class ManageGlossaryTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_tool(self, action: str) -> subprocess.CompletedProcess[str]:
+    def run_tool(
+        self, action: str, *extra: str
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 sys.executable,
                 str(SCRIPT),
                 action,
+                *extra,
                 "--data-home",
                 str(self.data_home),
                 "--claude-file",
@@ -74,6 +77,16 @@ class ManageGlossaryTest(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    def render_with_term(self, text: str, term: str) -> str:
+        """Independent oracle for term rendering: plain string replacements.
+
+        Mirrors the documented substitution rule — lowercase slots carry the
+        term, the sentence-initial slot its capitalized form — without going
+        through ``manage.substitute_term``.
+        """
+        capitalized = term[:1].upper() + term[1:]
+        return text.replace("Operator", capitalized).replace("operator", term)
 
     def assert_one_complete_block(self, path: Path, glossary: str) -> None:
         text = path.read_text(encoding="utf-8")
@@ -107,6 +120,66 @@ class ManageGlossaryTest(unittest.TestCase):
             self.assertNotIn("never edit either block", block)
             self.assertNotIn("--data-home", block)
             self.assertNotIn("```sh", block)
+
+    def test_setup_seeds_chosen_term_into_glossary_and_blocks(self):
+        result = self.run_tool("setup", "--term", "user")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("created", result.stdout)
+        self.assertNotIn("migrated", result.stdout)
+        expected = (
+            "# Personal Glossary\n"
+            "\n"
+            "User meta-language — these terms are how the user names things; use\n"
+            "them. Inside a repo, its CONTEXT.md wins on conflict.\n"
+            "\n"
+            "Use terms naturally — never announce or narrate that you are applying the\n"
+            "glossary. When the user uses an anti-term, gently point to the canonical\n"
+            "term; don't just avoid the anti-term in your own reply.\n"
+            "\n"
+            "---\n"
+        )
+        self.assertEqual(
+            self.data_home.joinpath("glossary.md").read_text(encoding="utf-8"),
+            expected,
+        )
+        self.assert_one_complete_block(self.claude, expected)
+        self.assert_one_complete_block(self.agents, expected)
+
+    def test_setup_seeds_chosen_term_with_natural_casing(self):
+        result = self.run_tool("setup", "--term", "developer")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        glossary = self.data_home.joinpath("glossary.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Developer meta-language — these terms are how the developer "
+            "names things",
+            glossary,
+        )
+        self.assertEqual(glossary, self.render_with_term(self.template_text(), "developer"))
+        self.assert_one_complete_block(self.claude, glossary)
+        self.assert_one_complete_block(self.agents, glossary)
+
+    def test_setup_explicit_operator_term_seeds_verbatim_template(self):
+        result = self.run_tool("setup", "--term", "operator")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.data_home.joinpath("glossary.md").read_text(encoding="utf-8"),
+            self.template_text(),
+        )
+
+    def test_setup_rejects_invalid_term_before_writing(self):
+        for bad in ("", "   ", "two\nlines"):
+            with self.subTest(term=bad):
+                result = self.run_tool("setup", "--term", bad)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("--term", result.stderr)
+                # Refusal happens before anything is created.
+                self.assertFalse(self.data_home.exists())
+                self.assertFalse(self.claude.exists())
+                self.assertFalse(self.agents.exists())
 
     def test_setup_migrates_legacy_import_and_preserves_unrelated_content(self):
         self.data_home.mkdir(parents=True)
@@ -185,6 +258,74 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(glossary_path.read_bytes(), migrated)
         self.assertEqual(result.stdout.strip(), "setup already complete")
+
+    def test_setup_preserves_chosen_term_across_reruns(self):
+        self.assertEqual(self.run_tool("setup", "--term", "user").returncode, 0)
+        seeded = self.data_home.joinpath("glossary.md").read_bytes()
+        blocks = (self.claude.read_bytes(), self.agents.read_bytes())
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "setup already complete")
+        self.assertEqual(
+            self.data_home.joinpath("glossary.md").read_bytes(), seeded
+        )
+        self.assertEqual((self.claude.read_bytes(), self.agents.read_bytes()), blocks)
+        self.assertIn(
+            "how the user names things", self.claude.read_text(encoding="utf-8")
+        )
+
+    def test_setup_migration_keeps_installed_term(self):
+        stale = self.render_with_term(STALE_HEADER, "user") + OPERATOR_ENTRIES
+        glossary_path = self.write_glossary(stale)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = self.render_with_term(self.template_text(), "user") + OPERATOR_ENTRIES
+        self.assertEqual(glossary_path.read_text(encoding="utf-8"), expected)
+        self.assertIn(
+            f"migrated {glossary_path.resolve()} header to current template",
+            result.stdout,
+        )
+        self.assert_one_complete_block(self.claude, expected)
+        self.assert_one_complete_block(self.agents, expected)
+        self.assertTrue(glossary_path.read_text(encoding="utf-8").endswith(OPERATOR_ENTRIES))
+
+        again = self.run_tool("setup")
+
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(again.stdout.strip(), "setup already complete")
+        self.assertEqual(glossary_path.read_bytes(), expected.encode("utf-8"))
+
+    def test_setup_unrecognized_header_falls_back_to_default_term(self):
+        fixture = "# Mine\n\nHand-written header text.\n\n---\n" + OPERATOR_ENTRIES
+        glossary_path = self.write_glossary(fixture)
+
+        result = self.run_tool("setup")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # A header this tool cannot read the term from migrates to the plain
+        # template — exactly the pre-choice behavior for operator installs.
+        expected = self.template_text() + OPERATOR_ENTRIES
+        self.assertEqual(glossary_path.read_text(encoding="utf-8"), expected)
+        self.assertIn("migrated", result.stdout)
+
+    def test_setup_explicit_term_rewrites_installed_header(self):
+        self.assertEqual(self.run_tool("setup", "--term", "user").returncode, 0)
+
+        result = self.run_tool("setup", "--term", "developer")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = self.render_with_term(self.template_text(), "developer")
+        self.assertEqual(
+            self.data_home.joinpath("glossary.md").read_text(encoding="utf-8"),
+            expected,
+        )
+        self.assertIn("migrated", result.stdout)
+        self.assert_one_complete_block(self.claude, expected)
+        self.assert_one_complete_block(self.agents, expected)
 
     def test_setup_leaves_current_header_byte_identical(self):
         current = self.template_text() + OPERATOR_ENTRIES
@@ -593,6 +734,19 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertNotIn("inspect the current global", skill)
         self.assertNotIn("require the pairs to match", skill)
 
+    def test_setup_skill_documents_term_option(self):
+        skill = SKILL_DIR.joinpath("SKILL.md").read_text(encoding="utf-8")
+        # The option and the natural choices are documented.
+        self.assertIn("--term", skill)
+        for word in ("`operator`", "`user`", "`developer`"):
+            self.assertIn(word, skill)
+        # The agent is told to offer the choice at installation time.
+        self.assertIn("human in the loop", skill)
+        self.assertIn("offer", skill)
+        # The persistence contract: an installed word is never reverted.
+        self.assertIn("keeps its installed word", skill)
+        self.assertIn("never revert", skill)
+
     def test_partial_managed_block_fails_without_rewriting_target(self):
         self.data_home.mkdir(parents=True)
         self.data_home.joinpath("glossary.md").write_text("glossary\n", encoding="utf-8")
@@ -605,6 +759,69 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.claude.read_text(), original)
         self.assertIn("without a matching end marker", result.stderr)
+
+
+class ManageTermTest(unittest.TestCase):
+    """Pure helpers behind the term option: rendering, recovery, validation."""
+
+    def test_substitute_term_replaces_every_occurrence(self):
+        text = (
+            "Operator meta-language — the operator names things; "
+            "Operator, operator."
+        )
+        self.assertEqual(
+            manage.substitute_term(text, "user"),
+            "User meta-language — the user names things; User, user.",
+        )
+
+    def test_substitute_term_leaves_no_occurrence_behind(self):
+        rendered = manage.substitute_term(TEMPLATE.read_text(encoding="utf-8"), "user")
+        self.assertNotIn("operator", rendered)
+        self.assertNotIn("Operator", rendered)
+        # Re-rendering a rendered header with the same term changes nothing,
+        # so setup reruns stay byte-stable.
+        self.assertEqual(manage.substitute_term(rendered, "user"), rendered)
+
+    def test_installed_term_recovers_term_from_rendered_template(self):
+        template = TEMPLATE.read_text(encoding="utf-8")
+        for term in ("operator", "user", "developer"):
+            with self.subTest(term=term):
+                self.assertEqual(
+                    manage.installed_term(manage.substitute_term(template, term)),
+                    term,
+                )
+
+    def test_installed_term_reads_stale_header_with_chosen_term(self):
+        self.assertEqual(
+            manage.installed_term(
+                manage.substitute_term(STALE_HEADER, "user") + OPERATOR_ENTRIES
+            ),
+            "user",
+        )
+
+    def test_installed_term_returns_none_without_recognizable_header(self):
+        self.assertIsNone(manage.installed_term("# Mine\n\n- **t** — m.\n"))
+        self.assertIsNone(
+            manage.installed_term(
+                "# Mine\n\nNo definitional sentence here.\n\n---\n- **t** — m.\n"
+            )
+        )
+        # The definitional sentence outside a tool-owned header (no entries
+        # separator) is operator body text, not a header to read.
+        self.assertIsNone(
+            manage.installed_term(
+                "# Mine\n\nthese terms are how the user names things\n"
+            )
+        )
+
+    def test_validate_term_normalizes_and_refuses_unusable_values(self):
+        self.assertEqual(manage.validate_term(" user "), "user")
+        with self.assertRaises(ValueError):
+            manage.validate_term("   ")
+        with self.assertRaises(ValueError):
+            manage.validate_term("two\nlines")
+        with self.assertRaises(ValueError):
+            manage.validate_term("two\rlines")
 
 
 class ManageMissingDefaultTargetsTest(unittest.TestCase):
