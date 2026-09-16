@@ -33,6 +33,10 @@ Passing `--claude-file` or `--agents-file` explicitly always writes that path,
 creating missing parent directories and the file itself. Existing instructions
 outside the managed blocks are preserved.
 
+When setup changes a file the skill tells you to start a new agent session so
+the updated glossary block is in context. A run with nothing to change prints
+only `setup already complete`.
+
 Vocabulary is curated by the `curate-glossary` skill. Agents invoke it from
 the skill's own description when the conversation surfaces vocabulary worth
 keeping — a coined term, an explicit correction, an alias — or whenever you

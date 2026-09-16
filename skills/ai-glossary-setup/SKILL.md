@@ -83,9 +83,21 @@ resynchronize the managed blocks; a rerun does not duplicate blocks. Report each
 path printed by the command; `setup already complete` means no bytes needed
 changing.
 
-Done when the command exits zero, the canonical glossary exists, and each
-active global file contains exactly one managed block with its complete
-content.
+When a setup run changes at least one file — it creates the glossary, migrates
+its header, or synchronizes a target — it prints those change lines instead of
+`setup already complete`. In that case print this message to the operator,
+verbatim:
+
+> Restart this agent session to load the updated glossary.
+
+A newly written managed block is not in the running session's context until a
+new agent session starts, so the operator has to restart for the update to take
+effect. Do not print the message for a run that reports `setup already
+complete`, and never attempt to reload the harness yourself.
+
+Done when the command exits zero, the canonical glossary exists, each active
+global file contains exactly one managed block with its complete content, and —
+when the run changed a file — the operator has been told to restart the session.
 
 ## Uninstall
 
