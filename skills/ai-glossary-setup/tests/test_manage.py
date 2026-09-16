@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 
 import importlib.util
-import json
 import os
-import re
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -78,18 +75,11 @@ class ManageGlossaryTest(unittest.TestCase):
             text=True,
         )
 
-    def expected_guidance(self) -> str:
-        return manage.synchronization_guidance(
-            self.data_home.resolve(), self.claude.resolve(), self.agents.resolve()
-        )
-
     def assert_one_complete_block(self, path: Path, glossary: str) -> None:
         text = path.read_text(encoding="utf-8")
         self.assertEqual(text.count(manage.START), 1)
         self.assertEqual(text.count(manage.END), 1)
-        self.assertIn(
-            manage.managed_block(glossary, self.expected_guidance()), text
-        )
+        self.assertIn(manage.managed_block(glossary), text)
 
     def template_text(self) -> str:
         return TEMPLATE.read_text(encoding="utf-8")
@@ -109,16 +99,14 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assert_one_complete_block(self.agents, glossary)
         for target in (self.claude, self.agents):
             block = target.read_text(encoding="utf-8")
-            self.assertIn(
-                "`$XDG_CONFIG_HOME/ai-glossary/glossary.md`, falling back to "
-                "`~/.config/ai-glossary/glossary.md` when `XDG_CONFIG_HOME` is unset or empty",
-                block,
-            )
-            self.assertIn("generated copies; never edit either block directly", block)
-            self.assertIn("After every canonical edit, immediately synchronize", block)
-            self.assertIn(f"--data-home {self.data_home.resolve()}", block)
-            self.assertIn(f"--claude-file {self.claude.resolve()}", block)
-            self.assertIn(f"--agents-file {self.agents.resolve()}", block)
+            # A managed block is content-only: markers plus the glossary.
+            self.assertEqual(block, manage.managed_block(glossary))
+            self.assertNotIn("## Canonical glossary workflow", block)
+            self.assertNotIn("ai-glossary:curation", block)
+            self.assertNotIn("For this installation", block)
+            self.assertNotIn("never edit either block", block)
+            self.assertNotIn("--data-home", block)
+            self.assertNotIn("```sh", block)
 
     def test_setup_migrates_legacy_import_and_preserves_unrelated_content(self):
         self.data_home.mkdir(parents=True)
@@ -271,7 +259,6 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(glossary_path.read_bytes(), expected_bytes)
 
     def test_managed_block_reuses_each_glossary_line_ending(self):
-        guidance = "curation guidance\n"
         cases = {
             "lf-terminated": ("# Glossary\n", "# Glossary\n"),
             "crlf-terminated": ("# Glossary\r\n", "# Glossary\r\n"),
@@ -284,8 +271,8 @@ class ManageGlossaryTest(unittest.TestCase):
         for name, (glossary, content) in cases.items():
             with self.subTest(name=name):
                 self.assertEqual(
-                    manage.managed_block(glossary, guidance),
-                    f"{manage.START}\n{guidance}{content}{manage.END}\n",
+                    manage.managed_block(glossary),
+                    f"{manage.START}\n{content}{manage.END}\n",
                 )
 
     def test_setup_cr_only_glossary_block_has_no_foreign_lf_tail(self):
@@ -296,7 +283,7 @@ class ManageGlossaryTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(glossary_path.read_bytes(), glossary.encode("utf-8"))
-        expected_block = manage.managed_block(glossary, self.expected_guidance())
+        expected_block = manage.managed_block(glossary)
         for target in (self.claude, self.agents):
             generated = target.read_bytes()
             self.assertEqual(generated, expected_block.encode("utf-8"))
@@ -443,7 +430,7 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(
             self.claude.read_bytes(),
             unrelated
-            + manage.managed_block("# First\n", self.expected_guidance()).encode(),
+            + manage.managed_block("# First\n").encode(),
         )
 
         glossary_path.write_text("# Repaired\n", encoding="utf-8")
@@ -453,7 +440,7 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual(
             self.claude.read_bytes(),
             unrelated
-            + manage.managed_block("# Repaired\n", self.expected_guidance()).encode(),
+            + manage.managed_block("# Repaired\n").encode(),
         )
 
         uninstall = self.run_tool("uninstall")
@@ -535,60 +522,76 @@ class ManageGlossaryTest(unittest.TestCase):
                 manage.default_agents_file(), home / ".codex" / "AGENTS.md"
             )
 
-    def test_explicit_data_home_curation_pair_edits_and_syncs_same_glossary(self):
-        default_glossary = self.root / "xdg" / "ai-glossary" / "glossary.md"
-        default_glossary.parent.mkdir(parents=True)
-        default_glossary.write_text("# Wrong default\n", encoding="utf-8")
-
+    def test_explicit_overrides_do_not_leak_paths_into_generated_block(self):
         setup = self.run_tool("setup")
         self.assertEqual(setup.returncode, 0, setup.stderr)
-        block = self.claude.read_text(encoding="utf-8")
-        match = re.search(r"<!-- ai-glossary:curation (\{.*\}) -->", block)
-        self.assertIsNotNone(match)
-        pair = json.loads(match.group(1))
-        canonical = Path(pair["canonical_glossary"])
-        command = shlex.split(pair["sync_command"])
+        glossary = self.data_home.joinpath("glossary.md").read_text(encoding="utf-8")
+        expected = manage.managed_block(glossary)
 
-        self.assertEqual(canonical, self.data_home.resolve() / "glossary.md")
-        self.assertEqual(
-            Path(command[command.index("--data-home") + 1]), self.data_home.resolve()
-        )
-        approved = "# Explicit override\n\n- **paired term** — approved meaning.\n"
-        canonical.write_text(approved, encoding="utf-8")
-        sync = subprocess.run(command, check=False, capture_output=True, text=True)
-
-        self.assertEqual(sync.returncode, 0, sync.stderr)
-        self.assertEqual(default_glossary.read_text(encoding="utf-8"), "# Wrong default\n")
         for target in (self.claude, self.agents):
-            generated = target.read_text(encoding="utf-8")
-            self.assertIn(approved, generated)
-            self.assertNotIn("# Wrong default", generated)
+            block = target.read_text(encoding="utf-8")
+            self.assertEqual(block, expected)
+            # Nonstandard overrides are intentionally no longer discoverable
+            # from the generated block.
+            self.assertNotIn(str(self.data_home.resolve()), block)
+            self.assertNotIn(str(self.claude.resolve()), block)
+            self.assertNotIn(str(self.agents.resolve()), block)
+            self.assertNotIn("--claude-file", block)
+            self.assertNotIn("--agents-file", block)
 
-    def test_curation_skill_resolves_managed_pair_before_environment_fallback(self):
+    def test_curation_skill_bundles_manage_and_template_byte_identical(self):
+        curate = SKILL_DIR.parent / "curate-glossary"
+        # curate-glossary is self-contained: it runs its own bundled manage.py,
+        # which reads the template beside it. Pin both copies so they cannot
+        # drift silently from the ai-glossary-setup originals.
+        self.assertEqual(
+            (curate / "manage.py").read_bytes(),
+            (SKILL_DIR / "manage.py").read_bytes(),
+        )
+        self.assertEqual(
+            (curate / "templates" / "glossary.md").read_bytes(),
+            (SKILL_DIR / "templates" / "glossary.md").read_bytes(),
+        )
+
+    def test_curation_skill_resolves_default_xdg_location(self):
         skill = SKILL_DIR.parent.joinpath("curate-glossary/SKILL.md").read_text(
             encoding="utf-8"
         )
-        managed = skill.index("Before reading a glossary, inspect the current global")
-        fallback = skill.index("When no current managed block supplies the pair")
-        read = skill.index("Read only the canonical glossary from the resolved pair")
+        resolve = skill.index("Resolve the canonical glossary from")
+        read = skill.index("Read only the canonical glossary from the resolved location")
         validate_existing = skill.index("Validate the existing term grammar")
         candidates = skill.index("## Build the candidate set")
         validate_update = skill.index("Validate the complete proposed content")
         write = skill.index("Once valid, write the canonical file")
-        apply = skill.index("Run the synchronization command from the same resolved pair")
+        apply = skill.index("Run the bundled synchronization command")
 
-        self.assertLess(managed, fallback)
-        self.assertLess(fallback, read)
+        self.assertLess(resolve, read)
         self.assertLess(read, validate_existing)
         self.assertLess(validate_existing, candidates)
         self.assertLess(candidates, validate_update)
         self.assertLess(validate_update, write)
         self.assertLess(write, apply)
-        self.assertIn("require the pairs to match", skill)
-        self.assertIn("For an older block without that\ncomment", skill)
-        self.assertIn("Never\ncombine a canonical path from one source", skill)
-        self.assertIn("Report and stop if\nsynchronization fails", skill)
+        self.assertIn("`$XDG_CONFIG_HOME/ai-glossary/glossary.md`", skill)
+        self.assertIn(
+            "falling back to `~/.config/ai-glossary/glossary.md` when "
+            "`XDG_CONFIG_HOME` is\nunset or empty",
+            skill,
+        )
+        # The skill runs its own bundled script rather than reaching into the
+        # ai-glossary-setup skill folder.
+        self.assertIn("this skill's own bundled `manage.py`", skill)
+        self.assertIn("<curate-glossary skill folder>/manage.py setup", skill)
+        self.assertIn("stop and tell the operator", skill)
+        self.assertIn("invoke `ai-glossary-setup`", skill)
+        # ai-glossary-setup is named only by the "not set up yet" escape.
+        self.assertEqual(skill.count("ai-glossary-setup"), 1)
+        self.assertIn("Report and stop if synchronization fails", skill)
         self.assertIn("never edit a managed block directly", skill)
+        # Resolution no longer inspects managed blocks for a canonical/sync pair.
+        self.assertNotIn("ai-glossary:curation", skill)
+        self.assertNotIn("For this installation", skill)
+        self.assertNotIn("inspect the current global", skill)
+        self.assertNotIn("require the pairs to match", skill)
 
     def test_partial_managed_block_fails_without_rewriting_target(self):
         self.data_home.mkdir(parents=True)
@@ -713,28 +716,6 @@ class ManageMissingDefaultTargetsTest(unittest.TestCase):
         )
         self.assertFalse((claude_home / "CLAUDE.md").exists())
         self.assertFalse((self.codex_home / "AGENTS.md").exists())
-
-
-class SynchronizationGuidanceSingleTargetTest(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        self.data_home = self.root / "config" / "ai-glossary"
-        self.claude_file = self.root / "claude" / "CLAUDE.md"
-
-    def tearDown(self):
-        self.temp.cleanup()
-
-    def test_only_mentions_and_syncs_the_present_target(self):
-        guidance = manage.synchronization_guidance(
-            self.data_home, self.claude_file, None
-        )
-
-        self.assertIn(str(self.claude_file), guidance)
-        self.assertNotIn("AGENTS.md", guidance)
-        self.assertNotIn("--agents-file", guidance)
-        self.assertIn("is a generated copy; never", guidance)
-        self.assertNotIn("generated copies; never edit either block", guidance)
 
 
 if __name__ == "__main__":

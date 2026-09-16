@@ -18,8 +18,8 @@ already exist on disk names a harness that is not installed, so it is left
 alone and never created; only targets that already exist are synchronized.
 Passing a path explicitly always writes it, creating any missing parent
 directories and the file itself. This keeps a Codex-only or Claude-only
-installation from gaining an unused config file. A generated managed block
-names and synchronizes only the target(s) it lives in.
+installation from gaining an unused config file. Only active targets receive a
+generated managed block.
 
 The **data home** is `$XDG_CONFIG_HOME/ai-glossary/`, falling back to
 `~/.config/ai-glossary/` when `XDG_CONFIG_HOME` is unset or empty. The script
@@ -75,11 +75,13 @@ for a classic-Mac CR-only file — so generating a block never appends a foreign
 ending before the end marker. A glossary with no trailing line ending is still
 separated from the end marker by one in its own dominant style.
 
-Each generated block also identifies the canonical file, forbids direct block
-edits, and embeds the exact command and resolved canonical/target paths needed
-to synchronize that installation. A rerun therefore synchronizes canonical
-edits and does not duplicate blocks. Report each path printed by the command;
-`setup already complete` means no bytes needed changing.
+Each generated block carries only the glossary content between its markers; it
+does not name the canonical file or embed a synchronization command. Resolution
+of the canonical path and sync command lives in this skill and in
+`curate-glossary`. After every canonical edit, immediately rerun setup to
+resynchronize the managed blocks; a rerun does not duplicate blocks. Report each
+path printed by the command; `setup already complete` means no bytes needed
+changing.
 
 Done when the command exits zero, the canonical glossary exists, and each
 active global file contains exactly one managed block with its complete
