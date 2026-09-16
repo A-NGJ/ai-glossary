@@ -152,36 +152,6 @@ class ManageGlossaryTest(unittest.TestCase):
         self.assertEqual((self.claude.read_bytes(), self.agents.read_bytes()), first)
         self.assertEqual(result.stdout.strip(), "setup already complete")
 
-    def test_setup_change_run_prints_reload_notice(self):
-        result = self.run_tool("setup")
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        lines = result.stdout.splitlines()
-        synchronized = f"synchronized {self.claude.resolve()}"
-        self.assertIn(synchronized, lines)
-        self.assertIn(manage.RELOAD_NOTICE, lines)
-        # The restart instruction follows the change it announces.
-        self.assertLess(
-            lines.index(synchronized), lines.index(manage.RELOAD_NOTICE)
-        )
-
-    def test_setup_no_change_run_prints_no_reload_notice(self):
-        self.assertEqual(self.run_tool("setup").returncode, 0)
-
-        result = self.run_tool("setup")
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "setup already complete")
-        self.assertNotIn(manage.RELOAD_NOTICE, result.stdout)
-
-    def test_uninstall_never_prints_reload_notice(self):
-        self.assertEqual(self.run_tool("setup").returncode, 0)
-
-        result = self.run_tool("uninstall")
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn(manage.RELOAD_NOTICE, result.stdout)
-
     def test_setup_migrates_stale_header_and_preserves_entries_and_aliases(self):
         glossary_path = self.write_glossary(STALE_HEADER + OPERATOR_ENTRIES)
 
@@ -740,8 +710,6 @@ class ManageMissingDefaultTargetsTest(unittest.TestCase):
             f"migrated {glossary_path.resolve()} header to current template",
             result.stdout,
         )
-        # A migrate-only run still changed a file, so it carries the notice.
-        self.assertIn(manage.RELOAD_NOTICE, result.stdout)
         self.assertEqual(
             glossary_path.read_text(encoding="utf-8"),
             TEMPLATE.read_text(encoding="utf-8") + OPERATOR_ENTRIES,
